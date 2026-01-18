@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { AIAnalysisResponse } from "../types";
+import { AIAnalysisResponse, AnalysisMode } from "../types";
 
 // Ensure API Key is present
 const apiKey = process.env.API_KEY;
@@ -10,24 +10,59 @@ if (!apiKey) {
 const ai = new GoogleGenAI({ apiKey: apiKey || 'DUMMY_KEY_FOR_BUILD' });
 
 /**
- * Analyzes a plant image using gemini-3-pro-preview with Thinking capabilities.
+ * Analyzes a plant image using gemini-3-pro-preview with Thinking capabilities and Google Search Grounding.
  */
 export const analyzePlantImage = async (
   imageBase64: string,
   cropType: string,
   growthStage: string,
-  userNotes: string
-): Promise<AIAnalysisResponse> => {
+  userNotes: string,
+  mode: AnalysisMode = 'DIAGNOSIS'
+): Promise<AIAnalysisResponse & { sources?: { title: string; uri: string }[] }> => {
   try {
-    const prompt = `
-      Analyze this plant image.
-      Context: Crop is ${cropType}, Growth Stage is ${growthStage}.
-      User Notes: "${userNotes}".
-      
-      Identify the disease, pest, or deficiency. 
-      Provide a diagnosis, a confidence score (0-100), a list of treatment steps, and prevention tips.
-      Return the response in JSON format.
-    `;
+    let prompt = "";
+
+    if (mode === 'IDENTIFICATION') {
+      prompt = `
+        Act as an expert botanist. Identify the plant species in this image.
+        User Notes: "${userNotes}".
+        
+        Task:
+        1. Use Google Search to compare the visual features (leaves, flowers, bark) with known plant species.
+        2. Provide the Common Name (and Scientific Name in parentheses) as the 'diagnosis'.
+        3. Provide a confidence score (0-100). Be conservative.
+        4. In 'treatment', list 3-4 distinct physical characteristics visible in the image that confirm this ID.
+        5. In 'prevention', list 3-4 ideal growing conditions (light, water, soil) for this species.
+        
+        Return the response in JSON format without Markdown formatting.
+      `;
+    } else {
+      prompt = `
+        Act as an expert agronomist. Analyze this plant image carefully for health issues.
+        
+        Context provided by farmer:
+        - Crop Type: ${cropType}
+        - Growth Stage: ${growthStage}
+        - User Observations: "${userNotes}"
+
+        Instructions:
+        1. **Search & Compare**: Use Google Search to find images and descriptions of diseases, pests, or deficiencies that match the *specific* visual symptoms in the image (e.g., "yellow halo spots on tomato leaves").
+        2. **Verify**: Compare the uploaded image against the search results. If the symptoms match a specific disease found online, use that diagnosis.
+        3. **Fallback**: If search yields no strong matches, analyze based on your internal knowledge of plant pathology.
+        4. **Check for Health**: If the plant looks healthy, diagnose as "Healthy Plant".
+        5. **Avoid Bias**: Do not default to "Early Blight" unless the visual evidence (e.g., concentric rings) matches online references for Early Blight.
+        6. **Confidence Scoring**: Be conservative. Do not assign 100% confidence unless you find overwhelming consensus across many sources (more than 10 distinct sites). If evidence is limited, keep confidence below 90%.
+
+        Response Requirements:
+        - Diagnosis: The name of the issue or "Healthy Plant".
+        - Confidence: 0-100 score.
+        - Treatment: Step-by-step organic and chemical controls.
+        - Prevention: Future best practices.
+        - Do not include citation markers (like [1]) in the JSON strings.
+
+        Return the response in JSON format without Markdown formatting.
+      `;
+    }
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
@@ -43,7 +78,8 @@ export const analyzePlantImage = async (
         ],
       },
       config: {
-        thinkingConfig: { thinkingBudget: 32768 }, // Max thinking for deep diagnosis
+        tools: [{ googleSearch: {} }], // Enable Google Search Grounding
+        thinkingConfig: { thinkingBudget: 16384 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -53,12 +89,12 @@ export const analyzePlantImage = async (
             treatment: { 
               type: Type.ARRAY, 
               items: { type: Type.STRING },
-              description: "Step by step treatment plan"
+              description: mode === 'IDENTIFICATION' ? "Key characteristics" : "Step by step treatment plan"
             },
             prevention: {
               type: Type.ARRAY,
               items: { type: Type.STRING },
-              description: "Future prevention tips"
+              description: mode === 'IDENTIFICATION' ? "Growing conditions" : "Future prevention tips"
             }
           },
           required: ["diagnosis", "confidence", "treatment", "prevention"],
@@ -69,7 +105,37 @@ export const analyzePlantImage = async (
     const text = response.text;
     if (!text) throw new Error("No response from AI");
     
-    return JSON.parse(text) as AIAnalysisResponse;
+    // Extract sources from grounding metadata
+    const sources: { title: string; uri: string }[] = [];
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    
+    if (chunks) {
+      chunks.forEach((chunk: any) => {
+        if (chunk.web?.uri && chunk.web?.title) {
+          sources.push({
+            title: chunk.web.title,
+            uri: chunk.web.uri
+          });
+        }
+      });
+    }
+
+    // Filter duplicates based on URI
+    const uniqueSources = Array.from(new Map(sources.map(item => [item.uri, item])).values());
+
+    const result = JSON.parse(text) as AIAnalysisResponse;
+
+    // Enforce confidence cap if fewer than 10 sources are found
+    if (uniqueSources.length <= 10) {
+      if (result.confidence >= 100) {
+        result.confidence = 98; // Cap below 100%
+      }
+    }
+    
+    return {
+      ...result,
+      sources: uniqueSources.slice(0, 3) // Return top 3 unique sources
+    };
 
   } catch (error) {
     console.error("Analysis Error:", error);

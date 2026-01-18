@@ -8,11 +8,15 @@ import {
   Leaf,
   ThermometerSun,
   Volume2,
-  Loader
+  Loader,
+  ScanEye,
+  Stethoscope,
+  Info,
+  Globe
 } from 'lucide-react';
 import { RadialBarChart, RadialBar, ResponsiveContainer, PolarAngleAxis } from 'recharts';
 
-import { ViewState, CropType, GrowthStage, AnalysisResult, HistoryItem } from './types';
+import { ViewState, CropType, GrowthStage, AnalysisResult, HistoryItem, AnalysisMode } from './types';
 import { analyzePlantImage, generateSpeech, getQuickTip } from './services/geminiService';
 import Camera from './components/Camera';
 import AudioInput from './components/AudioInput';
@@ -27,7 +31,7 @@ const LoadingScreen: React.FC = () => (
     </div>
     <h2 className="text-xl font-bold text-gray-800 mb-2">Analyzing your plant...</h2>
     <p className="text-gray-600 text-sm max-w-xs">
-      Our AI agronomist is thinking deeply about the diagnosis. This usually takes 10-15 seconds.
+      Comparing symptoms with online agricultural databases...
     </p>
   </div>
 );
@@ -36,6 +40,8 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
   const [isPlaying, setIsPlaying] = useState(false);
   const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
   const [loadingAudio, setLoadingAudio] = useState(false);
+
+  const isIdentification = result.mode === 'IDENTIFICATION';
 
   const handlePlayAudio = async () => {
     if (isPlaying && audio) {
@@ -52,10 +58,12 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
 
     setLoadingAudio(true);
     try {
-      const textToSpeak = `Diagnosis: ${result.diagnosis}. Treatment: ${result.treatment.join('. ')}`;
+      const textToSpeak = isIdentification 
+        ? `Identified as: ${result.diagnosis}. Characteristics include: ${result.treatment.join('. ')}`
+        : `Diagnosis: ${result.diagnosis}. Treatment: ${result.treatment.join('. ')}`;
+        
       const audioBase64 = await generateSpeech(textToSpeak);
       
-      // Decode audio data using Web Audio API as suggested in guidelines
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
       const binaryString = atob(audioBase64);
       const len = binaryString.length;
@@ -65,10 +73,6 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
       }
       
       const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
-      
-      // For simple playback, we can still use an Audio element via blob if simpler, 
-      // but to strictly follow the "Audio Decoding" section of the prompt guidelines 
-      // which uses AudioContext for playback:
       
       const source = audioContext.createBufferSource();
       source.buffer = audioBuffer;
@@ -100,12 +104,21 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
         <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
           <h1 className="text-2xl font-bold text-white mb-1">{result.diagnosis}</h1>
           <div className="flex items-center gap-2 text-emerald-300 text-sm">
-            <span className="bg-emerald-900/60 px-2 py-1 rounded backdrop-blur-md border border-emerald-500/30">
-              {result.cropType}
-            </span>
-            <span className="bg-emerald-900/60 px-2 py-1 rounded backdrop-blur-md border border-emerald-500/30">
-              {result.growthStage}
-            </span>
+            {!isIdentification && (
+              <>
+                <span className="bg-emerald-900/60 px-2 py-1 rounded backdrop-blur-md border border-emerald-500/30">
+                  {result.cropType}
+                </span>
+                <span className="bg-emerald-900/60 px-2 py-1 rounded backdrop-blur-md border border-emerald-500/30">
+                  {result.growthStage}
+                </span>
+              </>
+            )}
+             {isIdentification && (
+                <span className="bg-emerald-900/60 px-2 py-1 rounded backdrop-blur-md border border-emerald-500/30 flex items-center gap-1">
+                  <ScanEye size={12} /> Species Identification
+                </span>
+            )}
           </div>
         </div>
       </div>
@@ -127,7 +140,7 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
              </div>
              <div className="flex flex-col">
                <span className="text-sm text-gray-500 font-medium">Confidence Score</span>
-               <span className="text-xs text-gray-400">Based on visual analysis</span>
+               <span className="text-xs text-gray-400">Verified against online data</span>
              </div>
           </div>
           
@@ -140,16 +153,40 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
           </button>
         </div>
 
-        {/* Treatment */}
+        {/* Sources Section */}
+        {result.sources && result.sources.length > 0 && (
+          <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+            <h3 className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2 flex items-center gap-1">
+              <Globe size={14} /> Verified Sources
+            </h3>
+            <ul className="space-y-2">
+              {result.sources.map((source, idx) => (
+                <li key={idx}>
+                  <a 
+                    href={source.uri} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="text-sm text-blue-600 hover:underline truncate block"
+                  >
+                    {source.title || source.uri}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* Treatment / Characteristics */}
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
           <h3 className="text-lg font-bold text-gray-800 mb-3 flex items-center gap-2">
-            <Leaf size={20} className="text-emerald-500" /> Treatment Plan
+            {isIdentification ? <Info size={20} className="text-emerald-500" /> : <Leaf size={20} className="text-emerald-500" />}
+            {isIdentification ? "Key Characteristics" : "Treatment Plan"}
           </h3>
           <ul className="space-y-3">
             {result.treatment.map((step, idx) => (
               <li key={idx} className="flex gap-3 text-sm text-gray-600 leading-relaxed">
                 <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 font-bold flex items-center justify-center text-xs">
-                  {idx + 1}
+                  {isIdentification ? '•' : idx + 1}
                 </span>
                 {step}
               </li>
@@ -157,10 +194,11 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
           </ul>
         </div>
 
-        {/* Prevention */}
+        {/* Prevention / Growing Conditions */}
         <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
           <h3 className="text-lg font-bold text-gray-800 mb-3 flex items-center gap-2">
-            <AlertTriangle size={20} className="text-amber-500" /> Prevention
+            {isIdentification ? <ThermometerSun size={20} className="text-amber-500" /> : <AlertTriangle size={20} className="text-amber-500" />}
+            {isIdentification ? "Ideal Growing Conditions" : "Prevention"}
           </h3>
           <ul className="space-y-2">
             {result.prevention.map((tip, idx) => (
@@ -174,7 +212,7 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
 
         {/* Disclaimer */}
         <div className="bg-amber-50 border border-amber-100 rounded-lg p-4 text-xs text-amber-800 leading-relaxed">
-          <strong>Disclaimer:</strong> This is an AI-generated diagnosis. Always consult with a local agricultural expert or extension office before applying chemical treatments.
+          <strong>Disclaimer:</strong> This is an AI-generated analysis. Always consult with a local agricultural expert.
         </div>
       </div>
     </div>
@@ -193,6 +231,7 @@ const App: React.FC = () => {
   });
   
   // Form State
+  const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('DIAGNOSIS');
   const [selectedCrop, setSelectedCrop] = useState<string>(CropType.TOMATO);
   const [selectedStage, setSelectedStage] = useState<string>(GrowthStage.VEGETATIVE);
   const [userNotes, setUserNotes] = useState('');
@@ -225,7 +264,8 @@ const App: React.FC = () => {
         capturedImage, 
         selectedCrop, 
         selectedStage, 
-        userNotes
+        userNotes,
+        analysisMode
       );
 
       const result: AnalysisResult = {
@@ -239,6 +279,8 @@ const App: React.FC = () => {
         treatment: response.treatment,
         prevention: response.prevention,
         description: userNotes,
+        mode: analysisMode,
+        sources: response.sources
       };
 
       setHistory(prev => [result, ...prev]);
@@ -254,6 +296,7 @@ const App: React.FC = () => {
   const startNewScan = () => {
     setCapturedImage(null);
     setUserNotes('');
+    setAnalysisMode('DIAGNOSIS'); // Reset to default
     setIsCameraOpen(true);
   };
 
@@ -291,7 +334,7 @@ const App: React.FC = () => {
             {/* Hero CTA */}
             <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 rounded-3xl p-6 text-white shadow-xl shadow-emerald-200/50">
               <h2 className="text-2xl font-bold mb-2">Healthy crops start here.</h2>
-              <p className="text-emerald-100 mb-6 text-sm">Snap a photo to detect diseases instantly using advanced AI.</p>
+              <p className="text-emerald-100 mb-6 text-sm">Snap a photo to detect diseases or identify plant species instantly.</p>
               <button 
                 onClick={startNewScan}
                 className="w-full bg-white text-emerald-700 font-bold py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-emerald-50 transition-all active:scale-95 shadow-lg"
@@ -366,9 +409,15 @@ const App: React.FC = () => {
                         {item.confidence}%
                       </span>
                     </div>
-                    <p className="text-xs text-emerald-600 font-medium mt-1">{item.cropType} • {item.growthStage}</p>
+                    {item.mode === 'IDENTIFICATION' ? (
+                      <p className="text-xs text-emerald-600 font-medium mt-1 flex items-center gap-1">
+                        <ScanEye size={10} /> Identification
+                      </p>
+                    ) : (
+                      <p className="text-xs text-emerald-600 font-medium mt-1">{item.cropType} • {item.growthStage}</p>
+                    )}
                     <p className="text-xs text-gray-500 mt-2 line-clamp-2">
-                       Treatment: {item.treatment[0]}
+                       {item.mode === 'IDENTIFICATION' ? `Characteristics: ${item.treatment[0]}` : `Treatment: ${item.treatment[0]}`}
                     </p>
                   </div>
                 </div>
@@ -392,41 +441,61 @@ const App: React.FC = () => {
              </div>
 
              <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-5">
-                <h3 className="font-bold text-lg text-gray-800 border-b border-gray-100 pb-2">Plant Details</h3>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Crop Type</label>
-                    <div className="relative">
-                      <select 
-                        value={selectedCrop} 
-                        onChange={(e) => setSelectedCrop(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-lg py-3 px-3 appearance-none text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
-                      >
-                        {Object.values(CropType).map(crop => <option key={crop} value={crop}>{crop}</option>)}
-                      </select>
-                      <div className="absolute right-3 top-3.5 pointer-events-none text-gray-500">
-                        <ChevronRight size={14} className="rotate-90" />
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Growth Stage</label>
-                    <div className="relative">
-                      <select 
-                        value={selectedStage} 
-                        onChange={(e) => setSelectedStage(e.target.value)}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-lg py-3 px-3 appearance-none text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
-                      >
-                        {Object.values(GrowthStage).map(stage => <option key={stage} value={stage}>{stage}</option>)}
-                      </select>
-                       <div className="absolute right-3 top-3.5 pointer-events-none text-gray-500">
-                        <ChevronRight size={14} className="rotate-90" />
-                      </div>
-                    </div>
-                  </div>
+                {/* Mode Toggle */}
+                <div className="flex p-1 bg-gray-100 rounded-xl mb-2">
+                  <button 
+                    className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-2 ${analysisMode === 'DIAGNOSIS' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    onClick={() => setAnalysisMode('DIAGNOSIS')}
+                  >
+                    <Stethoscope size={16} /> Diagnose
+                  </button>
+                  <button 
+                    className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-2 ${analysisMode === 'IDENTIFICATION' ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    onClick={() => setAnalysisMode('IDENTIFICATION')}
+                  >
+                    <ScanEye size={16} /> Identify
+                  </button>
                 </div>
+
+                <h3 className="font-bold text-lg text-gray-800 border-b border-gray-100 pb-2">
+                  {analysisMode === 'DIAGNOSIS' ? 'Plant Details' : 'Identification Details'}
+                </h3>
+                
+                {analysisMode === 'DIAGNOSIS' && (
+                  <div className="grid grid-cols-2 gap-4 animate-fade-in">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Crop Type</label>
+                      <div className="relative">
+                        <select 
+                          value={selectedCrop} 
+                          onChange={(e) => setSelectedCrop(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg py-3 px-3 appearance-none text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
+                        >
+                          {Object.values(CropType).map(crop => <option key={crop} value={crop}>{crop}</option>)}
+                        </select>
+                        <div className="absolute right-3 top-3.5 pointer-events-none text-gray-500">
+                          <ChevronRight size={14} className="rotate-90" />
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Growth Stage</label>
+                      <div className="relative">
+                        <select 
+                          value={selectedStage} 
+                          onChange={(e) => setSelectedStage(e.target.value)}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg py-3 px-3 appearance-none text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
+                        >
+                          {Object.values(GrowthStage).map(stage => <option key={stage} value={stage}>{stage}</option>)}
+                        </select>
+                         <div className="absolute right-3 top-3.5 pointer-events-none text-gray-500">
+                          <ChevronRight size={14} className="rotate-90" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Observations</label>
@@ -434,7 +503,7 @@ const App: React.FC = () => {
                     <textarea 
                       value={userNotes}
                       onChange={(e) => setUserNotes(e.target.value)}
-                      placeholder="Describe spots, wilting, or pests..."
+                      placeholder={analysisMode === 'DIAGNOSIS' ? "Describe spots, wilting, or pests..." : "Any context? e.g. 'Found in forest'"}
                       className="w-full bg-gray-50 border border-gray-200 rounded-lg py-3 px-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none h-24 resize-none"
                     />
                     <div className="absolute bottom-2 right-2">
@@ -447,7 +516,7 @@ const App: React.FC = () => {
                   onClick={handleAnalyze}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-200 transition-all transform active:scale-[0.98]"
                 >
-                  Analyze Plant
+                  {analysisMode === 'DIAGNOSIS' ? 'Analyze Plant' : 'Identify Species'}
                 </button>
              </div>
           </div>

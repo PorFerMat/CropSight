@@ -5,6 +5,8 @@ export enum ViewState {
   HISTORY = 'HISTORY',
 }
 
+export type AnalysisMode = 'DIAGNOSIS' | 'IDENTIFICATION';
+
 export enum CropType {
   TOMATO = 'Tomato',
   WHEAT = 'Wheat',
@@ -34,6 +36,8 @@ export interface AnalysisResult {
   treatment: string[];
   prevention: string[];
   description: string; // User provided description
+  mode?: AnalysisMode;
+  sources?: { title: string; uri: string }[];
 }
 
 // JSON Schema structure for the AI response

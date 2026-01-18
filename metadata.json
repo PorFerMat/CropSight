@@ -1,0 +1,8 @@
+{
+  "name": "Copy of CropSight",
+  "description": "Your pocket-sized agronomist. AI-powered plant disease diagnosis and treatment plans.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

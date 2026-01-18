@@ -2,6 +2,27 @@
 
 **CropSight** (also known as Plant Doctor) is an AI-powered Progressive Web App (PWA) designed to help farmers and gardening enthusiasts instantly diagnose plant diseases, identify species, and receive actionable treatment plans. By leveraging the multimodal capabilities of **Google's Gemini API**, CropSight acts as a field expert in your pocket.
 
+## 💻 Getting Started
+
+To run this project locally, follow these steps:
+
+1.  **Install Dependencies**:
+    ```bash
+    npm install
+    ```
+
+2.  **Configure Environment**:
+    *   Create a `.env` file in the root directory.
+    *   Add your Google Gemini API key (ensure it is a paid tier key if using Veo video generation features):
+        ```env
+        API_KEY=your_actual_api_key_here
+        ```
+
+3.  **Run the App**:
+    ```bash
+    npm run dev
+    ```
+
 ## 💡 Inspiration
 
 Agriculture is the backbone of civilization, yet farmers lose approximately **20-40%** of their crops to pests and diseases annually. In many rural areas, access to professional agronomists is expensive or non-existent.

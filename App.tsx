@@ -15,12 +15,15 @@ import {
   Globe,
   Wifi,
   Droplets,
-  Wind
+  Wind,
+  PlayCircle,
+  Video,
+  X
 } from 'lucide-react';
 import { RadialBarChart, RadialBar, ResponsiveContainer, PolarAngleAxis } from 'recharts';
 
 import { ViewState, CropType, GrowthStage, AnalysisResult, HistoryItem, AnalysisMode, IoTData } from './types';
-import { analyzePlantImage, generateSpeech, getQuickTip } from './services/geminiService';
+import { analyzePlantImage, generateSpeech, getQuickTip, generateAppDemoVideo } from './services/geminiService';
 import Camera from './components/Camera';
 import AudioInput from './components/AudioInput';
 
@@ -262,6 +265,11 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentResult, setCurrentResult] = useState<AnalysisResult | null>(null);
   const [quickTip, setQuickTip] = useState<string>("Loading daily tip...");
+  
+  // Demo Video State
+  const [isGeneratingDemo, setIsGeneratingDemo] = useState(false);
+  const [demoVideoUrl, setDemoVideoUrl] = useState<string | null>(null);
+  const [showDemoModal, setShowDemoModal] = useState(false);
 
   // Load quick tip on mount
   useEffect(() => {
@@ -341,6 +349,55 @@ const App: React.FC = () => {
     setIsCameraOpen(true);
   };
 
+  const handleWatchDemo = async () => {
+    // API Key Check for Veo
+    // Cast to any to access aistudio which might be defined globally with a specific type
+    const aiStudio = (window as any).aistudio;
+    if (aiStudio) {
+      const hasKey = await aiStudio.hasSelectedApiKey();
+      if (!hasKey) {
+        try {
+          await aiStudio.openSelectKey();
+        } catch (e) {
+          console.error("Key selection failed or cancelled");
+          return;
+        }
+      }
+    }
+
+    setShowDemoModal(true);
+    if (demoVideoUrl) return; // Already generated
+
+    setIsGeneratingDemo(true);
+    try {
+      const uri = await generateAppDemoVideo();
+      // Fetch the video blob with the API key appended
+      const response = await fetch(`${uri}&key=${process.env.API_KEY}`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      setDemoVideoUrl(url);
+    } catch (error: any) {
+      console.error("Demo generation failed:", error);
+      
+      const errorMessage = error.toString();
+      // Handle 403 Permission Denied or 404 Entity Not Found (which sometimes happens with invalid keys on Veo)
+      if (errorMessage.includes("403") || errorMessage.includes("PERMISSION_DENIED")) {
+         alert("Permission Denied: Video generation requires a paid API key with billing enabled. Please select a supported key.");
+         if (aiStudio) {
+             // Reset logic: force open select key again
+             try {
+                await aiStudio.openSelectKey();
+             } catch(e) { console.error(e); }
+         }
+      } else {
+         alert("Failed to generate demo video. Please try again later.");
+      }
+      setShowDemoModal(false);
+    } finally {
+      setIsGeneratingDemo(false);
+    }
+  };
+
   // Render Views
   if (isCameraOpen) {
     return <Camera onCapture={handleCapture} onClose={() => setIsCameraOpen(false)} />;
@@ -376,13 +433,24 @@ const App: React.FC = () => {
             <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 rounded-3xl p-6 text-white shadow-xl shadow-emerald-200/50">
               <h2 className="text-2xl font-bold mb-2">Healthy crops start here.</h2>
               <p className="text-emerald-100 mb-6 text-sm">Snap a photo to detect diseases or identify plant species instantly.</p>
-              <button 
-                onClick={startNewScan}
-                className="w-full bg-white text-emerald-700 font-bold py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-emerald-50 transition-all active:scale-95 shadow-lg"
-              >
-                <CameraIcon size={20} />
-                Scan Plant
-              </button>
+              
+              <div className="flex flex-col gap-3">
+                <button 
+                  onClick={startNewScan}
+                  className="w-full bg-white text-emerald-700 font-bold py-4 rounded-xl flex items-center justify-center gap-2 hover:bg-emerald-50 transition-all active:scale-95 shadow-lg"
+                >
+                  <CameraIcon size={20} />
+                  Scan Plant
+                </button>
+                
+                <button 
+                  onClick={handleWatchDemo}
+                  className="w-full bg-emerald-700/50 border border-emerald-400/30 text-white font-medium py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-emerald-700/70 transition-all text-sm backdrop-blur-sm"
+                >
+                  <PlayCircle size={18} />
+                  Watch AI Demo
+                </button>
+              </div>
             </div>
 
             {/* Quick Tip */}
@@ -609,6 +677,54 @@ const App: React.FC = () => {
           </div>
         )}
       </main>
+
+      {/* Demo Video Modal */}
+      {showDemoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white w-full max-w-lg rounded-2xl overflow-hidden shadow-2xl relative">
+            <button 
+              onClick={() => setShowDemoModal(false)}
+              className="absolute top-3 right-3 z-10 p-1 bg-black/20 hover:bg-black/40 text-white rounded-full backdrop-blur-md"
+            >
+              <X size={20} />
+            </button>
+            
+            <div className="p-1 bg-gray-100">
+               {isGeneratingDemo && !demoVideoUrl ? (
+                 <div className="h-64 flex flex-col items-center justify-center text-center p-8">
+                   <div className="w-16 h-16 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin mb-6"></div>
+                   <h3 className="font-bold text-gray-800 text-lg mb-2">Generating AI Demo...</h3>
+                   <p className="text-xs text-gray-500 max-w-xs">
+                     Creating a cinematic video of CropSight in action using the <span className="font-mono text-emerald-600">veo-3.1-fast-generate-preview</span> model.
+                   </p>
+                   <p className="text-[10px] text-gray-400 mt-4">This usually takes about 60 seconds.</p>
+                 </div>
+               ) : demoVideoUrl ? (
+                 <video 
+                   src={demoVideoUrl} 
+                   controls 
+                   autoPlay 
+                   className="w-full h-auto aspect-video bg-black"
+                 />
+               ) : (
+                 <div className="h-64 flex items-center justify-center text-red-500">
+                   Failed to load video.
+                 </div>
+               )}
+            </div>
+            
+            <div className="p-4 bg-white flex items-center justify-between border-t border-gray-100">
+              <div className="flex items-center gap-2">
+                 <Video size={18} className="text-emerald-600" />
+                 <span className="text-sm font-bold text-gray-800">Gemini Veo Demo</span>
+              </div>
+              <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 hover:underline">
+                Billing Info
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Navigation Bar */}
       <nav className="fixed bottom-0 w-full bg-white border-t border-gray-200 py-3 px-8 flex justify-between items-center z-40 safe-area-bottom">

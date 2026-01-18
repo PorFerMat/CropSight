@@ -25,6 +25,12 @@ export enum GrowthStage {
   MATURITY = 'Maturity',
 }
 
+export interface IoTData {
+  temperature: number;
+  humidity: number;
+  soilMoisture: number;
+}
+
 export interface AnalysisResult {
   id: string;
   timestamp: number;
@@ -38,6 +44,7 @@ export interface AnalysisResult {
   description: string; // User provided description
   mode?: AnalysisMode;
   sources?: { title: string; uri: string }[];
+  iotData?: IoTData;
 }
 
 // JSON Schema structure for the AI response

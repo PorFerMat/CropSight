@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { AIAnalysisResponse, AnalysisMode } from "../types";
+import { AIAnalysisResponse, AnalysisMode, IoTData } from "../types";
 
 // Ensure API Key is present
 const apiKey = process.env.API_KEY;
@@ -17,7 +17,8 @@ export const analyzePlantImage = async (
   cropType: string,
   growthStage: string,
   userNotes: string,
-  mode: AnalysisMode = 'DIAGNOSIS'
+  mode: AnalysisMode = 'DIAGNOSIS',
+  iotData?: IoTData
 ): Promise<AIAnalysisResponse & { sources?: { title: string; uri: string }[] }> => {
   try {
     let prompt = "";
@@ -37,6 +38,17 @@ export const analyzePlantImage = async (
         Return the response in JSON format without Markdown formatting.
       `;
     } else {
+      // Construct IoT Context string if data exists
+      const iotContext = iotData ? `
+        Real-time IoT Sensor Data from Field:
+        - Temperature: ${iotData.temperature}°C
+        - Humidity: ${iotData.humidity}%
+        - Soil Moisture: ${iotData.soilMoisture}%
+        
+        CRITICAL INSTRUCTION: Use this environmental data to support or refute your diagnosis. 
+        (e.g., High humidity (>80%) favors fungal diseases like Blight or Downy Mildew. High temperature and low moisture might indicate heat stress or mites).
+      ` : "No IoT sensor data available.";
+
       prompt = `
         Act as an expert agronomist. Analyze this plant image carefully for health issues.
         
@@ -44,6 +56,7 @@ export const analyzePlantImage = async (
         - Crop Type: ${cropType}
         - Growth Stage: ${growthStage}
         - User Observations: "${userNotes}"
+        ${iotContext}
 
         Instructions:
         1. **Search & Compare**: Use Google Search to find images and descriptions of diseases, pests, or deficiencies that match the *specific* visual symptoms in the image (e.g., "yellow halo spots on tomato leaves").

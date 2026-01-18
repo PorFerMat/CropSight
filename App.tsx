@@ -12,16 +12,19 @@ import {
   ScanEye,
   Stethoscope,
   Info,
-  Globe
+  Globe,
+  Wifi,
+  Droplets,
+  Wind
 } from 'lucide-react';
 import { RadialBarChart, RadialBar, ResponsiveContainer, PolarAngleAxis } from 'recharts';
 
-import { ViewState, CropType, GrowthStage, AnalysisResult, HistoryItem, AnalysisMode } from './types';
+import { ViewState, CropType, GrowthStage, AnalysisResult, HistoryItem, AnalysisMode, IoTData } from './types';
 import { analyzePlantImage, generateSpeech, getQuickTip } from './services/geminiService';
 import Camera from './components/Camera';
 import AudioInput from './components/AudioInput';
 
-// --- Helper Components (Defined here to keep file count low per instructions, normally separate) ---
+// --- Helper Components ---
 
 const LoadingScreen: React.FC = () => (
   <div className="flex flex-col items-center justify-center min-h-screen bg-emerald-50 px-6 text-center">
@@ -124,6 +127,22 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
       </div>
 
       <div className="p-6 space-y-6">
+        
+        {/* IoT Data Used Badge */}
+        {result.iotData && (
+          <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex flex-col gap-2">
+            <h3 className="text-xs font-bold text-blue-700 flex items-center gap-2">
+              <Wifi size={14} /> IoT Data Incorporated
+            </h3>
+            <div className="flex justify-between text-xs text-blue-900">
+               <div className="flex items-center gap-1"><ThermometerSun size={12}/> {result.iotData.temperature}°C</div>
+               <div className="flex items-center gap-1"><Droplets size={12}/> {result.iotData.humidity}%</div>
+               <div className="flex items-center gap-1"><Wind size={12}/> {result.iotData.soilMoisture}%</div>
+            </div>
+            <p className="text-[10px] text-blue-500 italic">Diagnosis refined using environmental conditions.</p>
+          </div>
+        )}
+
         {/* Confidence & Audio */}
         <div className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
           <div className="flex items-center gap-4">
@@ -232,9 +251,14 @@ const App: React.FC = () => {
   
   // Form State
   const [analysisMode, setAnalysisMode] = useState<AnalysisMode>('DIAGNOSIS');
-  const [selectedCrop, setSelectedCrop] = useState<string>(CropType.TOMATO);
+  const [selectedCrop, setSelectedCrop] = useState<string>('Tomato'); // Default to string
   const [selectedStage, setSelectedStage] = useState<string>(GrowthStage.VEGETATIVE);
   const [userNotes, setUserNotes] = useState('');
+  
+  // IoT State
+  const [iotData, setIotData] = useState<IoTData | null>(null);
+  const [isConnectingIoT, setIsConnectingIoT] = useState(false);
+  
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentResult, setCurrentResult] = useState<AnalysisResult | null>(null);
   const [quickTip, setQuickTip] = useState<string>("Loading daily tip...");
@@ -255,6 +279,20 @@ const App: React.FC = () => {
     setView(ViewState.SCAN);
   };
 
+  const connectIoT = () => {
+    setIsConnectingIoT(true);
+    // Simulate connection delay
+    setTimeout(() => {
+        // Generate mock data relevant to plant health
+        setIotData({
+            temperature: Math.floor(Math.random() * (35 - 18) + 18), // 18-35°C
+            humidity: Math.floor(Math.random() * (95 - 40) + 40),   // 40-95%
+            soilMoisture: Math.floor(Math.random() * (80 - 10) + 10) // 10-80%
+        });
+        setIsConnectingIoT(false);
+    }, 1500);
+  };
+
   const handleAnalyze = async () => {
     if (!capturedImage) return;
     
@@ -265,7 +303,8 @@ const App: React.FC = () => {
         selectedCrop, 
         selectedStage, 
         userNotes,
-        analysisMode
+        analysisMode,
+        iotData || undefined
       );
 
       const result: AnalysisResult = {
@@ -280,7 +319,8 @@ const App: React.FC = () => {
         prevention: response.prevention,
         description: userNotes,
         mode: analysisMode,
-        sources: response.sources
+        sources: response.sources,
+        iotData: iotData || undefined
       };
 
       setHistory(prev => [result, ...prev]);
@@ -297,6 +337,7 @@ const App: React.FC = () => {
     setCapturedImage(null);
     setUserNotes('');
     setAnalysisMode('DIAGNOSIS'); // Reset to default
+    setIotData(null); // Reset IoT Data
     setIsCameraOpen(true);
   };
 
@@ -466,16 +507,17 @@ const App: React.FC = () => {
                     <div>
                       <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Crop Type</label>
                       <div className="relative">
-                        <select 
-                          value={selectedCrop} 
-                          onChange={(e) => setSelectedCrop(e.target.value)}
-                          className="w-full bg-gray-50 border border-gray-200 rounded-lg py-3 px-3 appearance-none text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
-                        >
-                          {Object.values(CropType).map(crop => <option key={crop} value={crop}>{crop}</option>)}
-                        </select>
-                        <div className="absolute right-3 top-3.5 pointer-events-none text-gray-500">
-                          <ChevronRight size={14} className="rotate-90" />
-                        </div>
+                        <input
+                           type="text"
+                           list="crops"
+                           value={selectedCrop}
+                           onChange={(e) => setSelectedCrop(e.target.value)}
+                           className="w-full bg-gray-50 border border-gray-200 rounded-lg py-3 px-3 text-sm font-medium focus:ring-2 focus:ring-emerald-500 outline-none"
+                           placeholder="Type crop name..."
+                        />
+                        <datalist id="crops">
+                          {Object.values(CropType).map(crop => <option key={crop} value={crop} />)}
+                        </datalist>
                       </div>
                     </div>
                     
@@ -494,6 +536,51 @@ const App: React.FC = () => {
                         </div>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* IoT Connection Section */}
+                {analysisMode === 'DIAGNOSIS' && (
+                  <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+                    {!iotData ? (
+                       <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2 text-gray-600">
+                            <Wifi size={18} />
+                            <span className="text-sm font-medium">IoT Sensor</span>
+                          </div>
+                          <button 
+                            onClick={connectIoT}
+                            disabled={isConnectingIoT}
+                            className="bg-white border border-gray-300 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-gray-100 flex items-center gap-2"
+                          >
+                            {isConnectingIoT ? <Loader className="animate-spin" size={12} /> : null}
+                            {isConnectingIoT ? "Connecting..." : "Connect Device"}
+                          </button>
+                       </div>
+                    ) : (
+                      <div className="animate-fade-in">
+                        <div className="flex justify-between items-center mb-2">
+                           <span className="text-xs font-bold text-emerald-700 flex items-center gap-1">
+                             <Wifi size={12} /> Connected: Field Sensor #492
+                           </span>
+                           <button onClick={() => setIotData(null)} className="text-xs text-gray-400 hover:text-gray-600">Disconnect</button>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="bg-white p-2 rounded border border-gray-100 text-center">
+                            <div className="text-xs text-gray-400 mb-1">Temp</div>
+                            <div className="text-sm font-bold text-gray-800">{iotData.temperature}°C</div>
+                          </div>
+                          <div className="bg-white p-2 rounded border border-gray-100 text-center">
+                             <div className="text-xs text-gray-400 mb-1">Humidity</div>
+                             <div className="text-sm font-bold text-gray-800">{iotData.humidity}%</div>
+                          </div>
+                          <div className="bg-white p-2 rounded border border-gray-100 text-center">
+                             <div className="text-xs text-gray-400 mb-1">Moisture</div>
+                             <div className="text-sm font-bold text-gray-800">{iotData.soilMoisture}%</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

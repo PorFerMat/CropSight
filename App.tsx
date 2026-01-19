@@ -18,7 +18,9 @@ import {
   Wind,
   PlayCircle,
   Video,
-  X
+  X,
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react';
 import { RadialBarChart, RadialBar, ResponsiveContainer, PolarAngleAxis } from 'recharts';
 
@@ -37,10 +39,48 @@ const LoadingScreen: React.FC = () => (
     </div>
     <h2 className="text-xl font-bold text-gray-800 mb-2">Analyzing your plant...</h2>
     <p className="text-gray-600 text-sm max-w-xs">
-      Comparing symptoms with online agricultural databases...
+      Comparing visual symptoms against agricultural databases and verifying sources...
     </p>
   </div>
 );
+
+interface MessageModalProps {
+  title: string;
+  message: string;
+  type?: 'error' | 'success' | 'info';
+  onClose: () => void;
+}
+
+const MessageModal: React.FC<MessageModalProps> = ({ title, message, type = 'error', onClose }) => {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+      <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl transform transition-all scale-100">
+        <div className="flex flex-col items-center text-center">
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
+            type === 'error' ? 'bg-red-100 text-red-600' : 
+            type === 'success' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'
+          }`}>
+            {type === 'error' && <AlertCircle size={24} />}
+            {type === 'success' && <CheckCircle2 size={24} />}
+            {type === 'info' && <Info size={24} />}
+          </div>
+          
+          <h3 className="text-lg font-bold text-gray-900 mb-2">{title}</h3>
+          <p className="text-sm text-gray-600 mb-6 leading-relaxed">
+            {message}
+          </p>
+          
+          <button 
+            onClick={onClose}
+            className="w-full bg-gray-900 text-white font-medium py-3 rounded-xl hover:bg-gray-800 transition-colors"
+          >
+            Okay, got it
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ result, onBack }) => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -90,7 +130,7 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
 
     } catch (err) {
       console.error("Audio playback failed", err);
-      alert("Could not generate audio.");
+      // We'll use a simple alert here as fallback or just log it since it's a minor feature failure
     } finally {
       setLoadingAudio(false);
     }
@@ -205,14 +245,18 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
             {isIdentification ? "Key Characteristics" : "Treatment Plan"}
           </h3>
           <ul className="space-y-3">
-            {result.treatment.map((step, idx) => (
-              <li key={idx} className="flex gap-3 text-sm text-gray-600 leading-relaxed">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 font-bold flex items-center justify-center text-xs">
-                  {isIdentification ? '•' : idx + 1}
-                </span>
-                {step}
-              </li>
-            ))}
+            {result.treatment.length > 0 ? (
+              result.treatment.map((step, idx) => (
+                <li key={idx} className="flex gap-3 text-sm text-gray-600 leading-relaxed">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-100 text-emerald-600 font-bold flex items-center justify-center text-xs">
+                    {isIdentification ? '•' : idx + 1}
+                  </span>
+                  {step}
+                </li>
+              ))
+            ) : (
+              <li className="text-sm text-gray-400 italic">No specific steps provided.</li>
+            )}
           </ul>
         </div>
 
@@ -223,12 +267,16 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
             {isIdentification ? "Ideal Growing Conditions" : "Prevention"}
           </h3>
           <ul className="space-y-2">
-            {result.prevention.map((tip, idx) => (
-              <li key={idx} className="flex gap-2 text-sm text-gray-600">
-                <span className="text-emerald-500">•</span>
-                {tip}
-              </li>
-            ))}
+             {result.prevention.length > 0 ? (
+                result.prevention.map((tip, idx) => (
+                  <li key={idx} className="flex gap-2 text-sm text-gray-600">
+                    <span className="text-emerald-500">•</span>
+                    {tip}
+                  </li>
+                ))
+             ) : (
+                <li className="text-sm text-gray-400 italic">No specific tips provided.</li>
+             )}
           </ul>
         </div>
 
@@ -266,6 +314,14 @@ const App: React.FC = () => {
   const [currentResult, setCurrentResult] = useState<AnalysisResult | null>(null);
   const [quickTip, setQuickTip] = useState<string>("Loading daily tip...");
   
+  // Modal State
+  const [modalState, setModalState] = useState<{show: boolean, title: string, message: string, type: 'error' | 'success' | 'info'}>({
+    show: false,
+    title: '',
+    message: '',
+    type: 'info'
+  });
+
   // Demo Video State
   const [isGeneratingDemo, setIsGeneratingDemo] = useState(false);
   const [demoVideoUrl, setDemoVideoUrl] = useState<string | null>(null);
@@ -301,6 +357,10 @@ const App: React.FC = () => {
     }, 1500);
   };
 
+  const showModal = (title: string, message: string, type: 'error' | 'success' | 'info' = 'error') => {
+    setModalState({ show: true, title, message, type });
+  };
+
   const handleAnalyze = async () => {
     if (!capturedImage) return;
     
@@ -314,6 +374,17 @@ const App: React.FC = () => {
         analysisMode,
         iotData || undefined
       );
+
+      // Handle "Not a Plant" detection
+      if (response.diagnosis === "Not a Plant" || response.confidence === 0) {
+          showModal(
+            "No Plant Detected", 
+            "We couldn't identify a clear plant in your photo. Please try retaking the photo, ensuring the plant is centered, well-lit, and in focus.",
+            "error"
+          );
+          setIsAnalyzing(false);
+          return;
+      }
 
       const result: AnalysisResult = {
         id: Date.now().toString(),
@@ -335,7 +406,8 @@ const App: React.FC = () => {
       setCurrentResult(result);
       setView(ViewState.RESULT);
     } catch (error) {
-      alert("Analysis failed. Please try again.");
+      console.error(error);
+      showModal("Analysis Failed", "Something went wrong while analyzing the image. Please check your internet connection and try again.", "error");
     } finally {
       setIsAnalyzing(false);
     }
@@ -382,7 +454,11 @@ const App: React.FC = () => {
       const errorMessage = error.toString();
       // Handle 403 Permission Denied or 404 Entity Not Found (which sometimes happens with invalid keys on Veo)
       if (errorMessage.includes("403") || errorMessage.includes("PERMISSION_DENIED")) {
-         alert("Permission Denied: Video generation requires a paid API key with billing enabled. Please select a supported key.");
+         showModal(
+            "Permission Denied",
+            "Video generation requires a paid API key with billing enabled. Please select a supported key.",
+            "error"
+         );
          if (aiStudio) {
              // Reset logic: force open select key again
              try {
@@ -390,7 +466,7 @@ const App: React.FC = () => {
              } catch(e) { console.error(e); }
          }
       } else {
-         alert("Failed to generate demo video. Please try again later.");
+         showModal("Generation Failed", "Failed to generate demo video. Please try again later.", "error");
       }
       setShowDemoModal(false);
     } finally {
@@ -413,6 +489,16 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-900 pb-20">
+      
+      {/* Global Message Modal */}
+      {modalState.show && (
+        <MessageModal 
+          title={modalState.title} 
+          message={modalState.message} 
+          type={modalState.type} 
+          onClose={() => setModalState(prev => ({ ...prev, show: false }))} 
+        />
+      )}
       
       {/* Header */}
       <header className="bg-white sticky top-0 z-30 px-6 py-4 shadow-sm flex items-center justify-between">

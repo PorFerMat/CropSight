@@ -23,58 +23,86 @@ export const analyzePlantImage = async (
 ): Promise<AIAnalysisResponse & { sources?: { title: string; uri: string }[] }> => {
   try {
     let prompt = "";
+    
+    // Common instructions for robust source verification
+    const verificationInstructions = `
+      VERIFICATION RULES (CRITICAL):
+      1. **Source Quality**: You MUST prioritize information from University Agricultural Extensions (.edu), Government Agricultural Departments (.gov), and established botanical organizations (.org).
+      2. **Cross-Reference**: Do not confirm a diagnosis unless visual symptoms match descriptions from AT LEAST 4 distinct, high-quality sources found via Google Search.
+      3. **Visual Confirmation**: Compare the specific lesions, yellowing patterns, or bug morphology in the image against the images/descriptions found in your search. If they don't match, lower the confidence score.
+    `;
+
+    // New instruction for checking if the image originates from the web
+    const sourceCheckInstructions = `
+      PRIORITY CHECK: REVERSE IMAGE LOOKUP
+      1. First, use Google Search to check if this exact image exists online.
+      2. If you find the image on a website (e.g., a blog, article, or database):
+         - Trust the information from that source for the Diagnosis/Identification.
+         - Cite that specific website in the response logic.
+         - Set confidence to 95-100%.
+      3. If the image is unique (not found online):
+         - Proceed with standard visual analysis and symptom matching.
+    `;
 
     if (mode === 'IDENTIFICATION') {
       prompt = `
-        Act as an expert botanist. Identify the plant species in this image.
+        Act as a Senior Botanist.
+        
+        STEP 1: VALIDATION
+        Is this image a plant, flower, fruit, vegetable, or crop? 
+        - If NO (e.g., it's a person, car, building, or blurry non-plant object): Return diagnosis: "Not a Plant", confidence: 0, treatment: [], prevention: [].
+        - If YES: Proceed.
+
+        STEP 2: SOURCE CHECK & IDENTIFICATION
+        ${sourceCheckInstructions}
+
+        STEP 3: STANDARD ANALYSIS (If unique image)
         User Notes: "${userNotes}".
         
-        Task:
-        1. Use Google Search to compare the visual features (leaves, flowers, bark) with known plant species.
-        2. Provide the Common Name (and Scientific Name in parentheses) as the 'diagnosis'.
-        3. Provide a confidence score (0-100). Be conservative.
-        4. In 'treatment', list 3-4 distinct physical characteristics visible in the image that confirm this ID.
-        5. In 'prevention', list 3-4 ideal growing conditions (light, water, soil) for this species.
+        1. Use Google Search to identify the species.
+        2. ${verificationInstructions}
+        3. Provide the Common Name (and Scientific Name) as the 'diagnosis'.
+        4. In 'treatment', list 3 distinct physical characteristics visible in the photo that confirm this ID.
+        5. In 'prevention', list 3 ideal growing conditions.
         
-        Return the response in JSON format without Markdown formatting.
+        Return JSON.
       `;
     } else {
       // Construct IoT Context string if data exists
       const iotContext = iotData ? `
-        Real-time IoT Sensor Data from Field:
-        - Temperature: ${iotData.temperature}°C
+        Real-time IoT Sensor Data:
+        - Temp: ${iotData.temperature}°C
         - Humidity: ${iotData.humidity}%
         - Soil Moisture: ${iotData.soilMoisture}%
-        
-        CRITICAL INSTRUCTION: Use this environmental data to support or refute your diagnosis. 
-        (e.g., High humidity (>80%) favors fungal diseases like Blight or Downy Mildew. High temperature and low moisture might indicate heat stress or mites).
+        (Use this to validate disease likelihood. E.g., Fungal diseases thrive in high humidity).
       ` : "No IoT sensor data available.";
 
       prompt = `
-        Act as an expert agronomist. Analyze this plant image carefully for health issues.
+        Act as a Senior Plant Pathologist.
         
-        Context provided by farmer:
-        - Crop Type: ${cropType}
-        - Growth Stage: ${growthStage}
-        - User Observations: "${userNotes}"
+        STEP 1: VALIDATION (CRITICAL)
+        Analyze the image. Does it contain a plant, leaf, crop, fruit, or soil?
+        - If the image is unrelated to agriculture/botany (e.g., a selfie, furniture, animal): Return diagnosis: "Not a Plant", confidence: 0, treatment: [], prevention: []. STOP HERE.
+
+        STEP 2: SOURCE CHECK & DIAGNOSIS
+        ${sourceCheckInstructions}
+
+        STEP 3: STANDARD ANALYSIS (If unique image)
+        Context: Crop: ${cropType}, Stage: ${growthStage}, Notes: "${userNotes}".
         ${iotContext}
 
-        Instructions:
-        1. **Search & Compare**: Use Google Search to find images and descriptions of diseases, pests, or deficiencies that match the *specific* visual symptoms in the image (e.g., "yellow halo spots on tomato leaves").
-        2. **Verify**: Compare the uploaded image against the search results. If the symptoms match a specific disease found online, use that diagnosis.
-        3. **Fallback**: If search yields no strong matches, analyze based on your internal knowledge of plant pathology.
-        4. **Check for Health**: If the plant looks healthy, diagnose as "Healthy Plant".
-        5. **Avoid Bias**: Do not default to "Early Blight" unless the visual evidence (e.g., concentric rings) matches online references for Early Blight.
-        6. **Confidence Scoring**: Be conservative. Do not assign 100% confidence unless you find overwhelming consensus across many sources (more than 10 distinct sites). If evidence is limited, keep confidence below 90%.
-
+        1. **Search & Compare**: Use Google Search to find diseases matching the VISUAL SYMPTOMS (e.g., "concentric rings on tomato leaves").
+        2. ${verificationInstructions}
+        3. **Healthy Check**: If the plant has no visible necrotic spots, wilting, or pests, diagnosis MUST be "Healthy Plant". Do not hallucinate a disease on a healthy leaf.
+        4. **Treatment**: Provide specific, actionable organic and chemical controls.
+        
         Response Requirements:
-        - Diagnosis: The name of the issue or "Healthy Plant".
-        - Confidence: 0-100 score.
-        - Treatment: Step-by-step organic and chemical controls.
-        - Prevention: Future best practices.
-        - Do not include citation markers (like [1]) in the JSON strings.
-
-        Return the response in JSON format without Markdown formatting.
+        - Diagnosis: Name of disease or "Healthy Plant".
+        - Confidence: 0-100. (If exact image found, 100. If < 4 matching sources, cap confidence at 80%).
+        - Treatment: Array of steps.
+        - Prevention: Array of tips.
+        
+        Return JSON.
       `;
     }
 
@@ -103,12 +131,12 @@ export const analyzePlantImage = async (
             treatment: { 
               type: Type.ARRAY, 
               items: { type: Type.STRING },
-              description: mode === 'IDENTIFICATION' ? "Key characteristics" : "Step by step treatment plan"
+              description: "Treatment steps or Characteristics"
             },
             prevention: {
               type: Type.ARRAY,
               items: { type: Type.STRING },
-              description: mode === 'IDENTIFICATION' ? "Growing conditions" : "Future prevention tips"
+              description: "Prevention tips or Growing conditions"
             }
           },
           required: ["diagnosis", "confidence", "treatment", "prevention"],
@@ -139,16 +167,9 @@ export const analyzePlantImage = async (
 
     const result = JSON.parse(text) as AIAnalysisResponse;
 
-    // Enforce confidence cap if fewer than 10 sources are found
-    if (uniqueSources.length <= 10) {
-      if (result.confidence >= 100) {
-        result.confidence = 98; // Cap below 100%
-      }
-    }
-    
     return {
       ...result,
-      sources: uniqueSources.slice(0, 3) // Return top 3 unique sources
+      sources: uniqueSources.slice(0, 5) // Return top 5 unique sources
     };
 
   } catch (error) {

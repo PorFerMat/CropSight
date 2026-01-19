@@ -20,7 +20,8 @@ import {
   Video,
   X,
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  Images
 } from 'lucide-react';
 import { RadialBarChart, RadialBar, ResponsiveContainer, PolarAngleAxis } from 'recharts';
 
@@ -130,7 +131,6 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
 
     } catch (err) {
       console.error("Audio playback failed", err);
-      // We'll use a simple alert here as fallback or just log it since it's a minor feature failure
     } finally {
       setLoadingAudio(false);
     }
@@ -294,7 +294,7 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
 const App: React.FC = () => {
   const [view, setView] = useState<ViewState>(ViewState.HOME);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [capturedImages, setCapturedImages] = useState<string[]>([]);
   const [history, setHistory] = useState<HistoryItem[]>(() => {
     const saved = localStorage.getItem('cropSightHistory');
     return saved ? JSON.parse(saved) : [];
@@ -337,8 +337,8 @@ const App: React.FC = () => {
     localStorage.setItem('cropSightHistory', JSON.stringify(history));
   }, [history]);
 
-  const handleCapture = (base64: string) => {
-    setCapturedImage(base64);
+  const handleCapture = (images: string[]) => {
+    setCapturedImages(images);
     setIsCameraOpen(false);
     setView(ViewState.SCAN);
   };
@@ -362,12 +362,12 @@ const App: React.FC = () => {
   };
 
   const handleAnalyze = async () => {
-    if (!capturedImage) return;
+    if (capturedImages.length === 0) return;
     
     setIsAnalyzing(true);
     try {
       const response = await analyzePlantImage(
-        capturedImage, 
+        capturedImages, 
         selectedCrop, 
         selectedStage, 
         userNotes,
@@ -379,7 +379,7 @@ const App: React.FC = () => {
       if (response.diagnosis === "Not a Plant" || response.confidence === 0) {
           showModal(
             "No Plant Detected", 
-            "We couldn't identify a clear plant in your photo. Please try retaking the photo, ensuring the plant is centered, well-lit, and in focus.",
+            "We couldn't identify a clear plant in your photos. Please try retaking them, ensuring the plant is centered, well-lit, and in focus.",
             "error"
           );
           setIsAnalyzing(false);
@@ -389,7 +389,8 @@ const App: React.FC = () => {
       const result: AnalysisResult = {
         id: Date.now().toString(),
         timestamp: Date.now(),
-        imageUrl: capturedImage,
+        imageUrl: capturedImages[0], // Use first image as thumbnail
+        additionalImages: capturedImages,
         cropType: selectedCrop,
         growthStage: selectedStage,
         diagnosis: response.diagnosis,
@@ -414,7 +415,7 @@ const App: React.FC = () => {
   };
 
   const startNewScan = () => {
-    setCapturedImage(null);
+    setCapturedImages([]);
     setUserNotes('');
     setAnalysisMode('DIAGNOSIS'); // Reset to default
     setIotData(null); // Reset IoT Data
@@ -518,7 +519,7 @@ const App: React.FC = () => {
             {/* Hero CTA */}
             <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 rounded-3xl p-6 text-white shadow-xl shadow-emerald-200/50">
               <h2 className="text-2xl font-bold mb-2">Healthy crops start here.</h2>
-              <p className="text-emerald-100 mb-6 text-sm">Snap a photo to detect diseases or identify plant species instantly.</p>
+              <p className="text-emerald-100 mb-6 text-sm">Snap photos to detect diseases or identify plant species instantly.</p>
               
               <div className="flex flex-col gap-3">
                 <button 
@@ -623,16 +624,35 @@ const App: React.FC = () => {
 
         {view === ViewState.SCAN && (
           <div className="animate-fade-in">
-             <div className="mb-6 relative h-48 rounded-xl overflow-hidden bg-black group">
-                {capturedImage && (
-                  <img src={`data:image/jpeg;base64,${capturedImage}`} alt="Preview" className="w-full h-full object-cover" />
+             <div className="mb-6">
+                {capturedImages.length === 1 ? (
+                  <div className="relative h-48 rounded-xl overflow-hidden bg-black group">
+                     <img src={`data:image/jpeg;base64,${capturedImages[0]}`} alt="Preview" className="w-full h-full object-cover" />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-2">
+                     <div className="col-span-2 h-40 rounded-xl overflow-hidden bg-black relative">
+                        <img src={`data:image/jpeg;base64,${capturedImages[0]}`} alt="Main Preview" className="w-full h-full object-cover" />
+                        <div className="absolute top-2 right-2 bg-black/60 text-white text-[10px] px-2 py-1 rounded-full">
+                           Main View
+                        </div>
+                     </div>
+                     {capturedImages.slice(1).map((img, idx) => (
+                        <div key={idx} className="h-24 rounded-lg overflow-hidden bg-black relative">
+                           <img src={`data:image/jpeg;base64,${img}`} alt={`Preview ${idx+2}`} className="w-full h-full object-cover" />
+                        </div>
+                     ))}
+                  </div>
                 )}
-                <button 
-                  onClick={startNewScan}
-                  className="absolute bottom-3 right-3 bg-black/50 hover:bg-black/70 text-white p-2 rounded-lg backdrop-blur-sm text-xs font-medium flex items-center gap-1"
-                >
-                  <CameraIcon size={14} /> Retake
-                </button>
+                
+                <div className="flex justify-end mt-2">
+                   <button 
+                     onClick={startNewScan}
+                     className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors"
+                   >
+                     <CameraIcon size={14} /> Retake
+                   </button>
+                </div>
              </div>
 
              <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 space-y-5">

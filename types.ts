@@ -1,3 +1,4 @@
+
 export enum ViewState {
   HOME = 'HOME',
   SCAN = 'SCAN',
@@ -34,7 +35,8 @@ export interface IoTData {
 export interface AnalysisResult {
   id: string;
   timestamp: number;
-  imageUrl: string;
+  imageUrl: string; // Kept for backward compatibility (primary image)
+  additionalImages?: string[]; // New field for multiple images
   cropType: string;
   growthStage: string;
   diagnosis: string;

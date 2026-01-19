@@ -1,8 +1,8 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Camera as CameraIcon, X, RefreshCw, Image as ImageIcon } from 'lucide-react';
+import { Camera as CameraIcon, X, RefreshCw, Image as ImageIcon, Check, Plus } from 'lucide-react';
 
 interface CameraProps {
-  onCapture: (base64Image: string) => void;
+  onCapture: (base64Images: string[]) => void;
   onClose: () => void;
 }
 
@@ -12,6 +12,8 @@ const Camera: React.FC<CameraProps> = ({ onCapture, onClose }) => {
   const streamRef = useRef<MediaStream | null>(null);
   const [error, setError] = useState<string>('');
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
+  const [capturedImages, setCapturedImages] = useState<string[]>([]);
+  const MAX_IMAGES = 3;
 
   const stopCamera = () => {
     if (streamRef.current) {
@@ -33,7 +35,6 @@ const Camera: React.FC<CameraProps> = ({ onCapture, onClose }) => {
     setError('');
 
     try {
-      // First attempt: specific facing mode
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: facingMode },
         audio: false,
@@ -41,8 +42,6 @@ const Camera: React.FC<CameraProps> = ({ onCapture, onClose }) => {
       handleStream(stream);
     } catch (err) {
       console.warn(`Camera start failed for mode ${facingMode}:`, err);
-      
-      // Fallback attempt: Any video source (useful for desktops/laptops without rear cam)
       try {
         const fallbackStream = await navigator.mediaDevices.getUserMedia({
           video: true,
@@ -51,7 +50,7 @@ const Camera: React.FC<CameraProps> = ({ onCapture, onClose }) => {
         handleStream(fallbackStream);
       } catch (fallbackErr) {
         console.error("All camera attempts failed:", fallbackErr);
-        setError('Camera not found or access denied. Please allow permissions or upload a file.');
+        setError('Camera not found. Please upload a file.');
       }
     }
   };
@@ -63,12 +62,13 @@ const Camera: React.FC<CameraProps> = ({ onCapture, onClose }) => {
   }, [facingMode]);
 
   const takePhoto = () => {
+    if (capturedImages.length >= MAX_IMAGES) return;
+
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
       const context = canvas.getContext('2d');
 
-      // Set canvas dimensions to match video
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
 
@@ -77,9 +77,15 @@ const Camera: React.FC<CameraProps> = ({ onCapture, onClose }) => {
         const imageBase64 = canvas.toDataURL('image/jpeg', 0.8);
         const pureBase64 = imageBase64.split(',')[1];
         
-        stopCamera();
-        onCapture(pureBase64);
+        setCapturedImages(prev => [...prev, pureBase64]);
       }
+    }
+  };
+
+  const handleFinish = () => {
+    if (capturedImages.length > 0) {
+      stopCamera();
+      onCapture(capturedImages);
     }
   };
 
@@ -90,8 +96,14 @@ const Camera: React.FC<CameraProps> = ({ onCapture, onClose }) => {
       reader.onloadend = () => {
         const result = reader.result as string;
         const pureBase64 = result.split(',')[1];
-        stopCamera();
-        onCapture(pureBase64);
+        
+        // Add file upload to list and finish immediately if it's the first one, or add to queue? 
+        // For simplicity, let's just treat upload as "Add one"
+        setCapturedImages(prev => {
+            const newImages = [...prev, pureBase64];
+            // If we want to allow mixing camera and upload, we just add it.
+            return newImages; 
+        });
       };
       reader.readAsDataURL(file);
     }
@@ -108,7 +120,12 @@ const Camera: React.FC<CameraProps> = ({ onCapture, onClose }) => {
         <button onClick={onClose} className="text-white p-2 rounded-full hover:bg-white/20">
           <X size={24} />
         </button>
-        <span className="text-white font-medium">Take Photo</span>
+        <div className="flex flex-col items-center">
+             <span className="text-white font-medium">Take Photo</span>
+             <span className="text-[10px] text-emerald-400 font-medium tracking-wide">
+                 {capturedImages.length}/{MAX_IMAGES} CAPTURED
+             </span>
+        </div>
         <button onClick={toggleCamera} className="text-white p-2 rounded-full hover:bg-white/20">
           <RefreshCw size={24} />
         </button>
@@ -138,8 +155,27 @@ const Camera: React.FC<CameraProps> = ({ onCapture, onClose }) => {
         <canvas ref={canvasRef} className="hidden" />
       </div>
 
+      {/* Thumbnail Tray */}
+      {capturedImages.length > 0 && (
+          <div className="bg-black/80 h-20 flex items-center px-4 gap-3 overflow-x-auto absolute bottom-32 w-full z-20 backdrop-blur-sm border-t border-white/10">
+            {capturedImages.map((img, idx) => (
+                <div key={idx} className="relative w-12 h-16 flex-shrink-0 border border-emerald-500/50 rounded-md overflow-hidden">
+                    <img src={`data:image/jpeg;base64,${img}`} className="w-full h-full object-cover" alt={`capture ${idx}`} />
+                    <div className="absolute top-0 right-0 bg-emerald-600 text-white text-[8px] px-1 font-bold">
+                        {idx + 1}
+                    </div>
+                </div>
+            ))}
+            {capturedImages.length < MAX_IMAGES && (
+                 <div className="text-white/30 text-xs italic ml-2">
+                    Tap shutter to add more
+                 </div>
+            )}
+          </div>
+      )}
+
       {/* Controls */}
-      <div className="h-32 bg-black flex items-center justify-around px-8 pb-4">
+      <div className="h-32 bg-black flex items-center justify-around px-8 pb-4 relative z-30">
         <label className="flex flex-col items-center text-white/70 gap-1 cursor-pointer hover:text-white transition-colors">
           <div className="p-3 bg-white/10 rounded-full">
             <ImageIcon size={24} />
@@ -148,15 +184,37 @@ const Camera: React.FC<CameraProps> = ({ onCapture, onClose }) => {
           <input type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
         </label>
 
+        {/* Shutter Button */}
         <button 
           onClick={takePhoto} 
-          disabled={!!error}
-          className={`w-18 h-18 p-1 rounded-full border-4 ${error ? 'border-gray-600 opacity-50' : 'border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]'} flex items-center justify-center transform active:scale-95 transition-all`}
+          disabled={!!error || capturedImages.length >= MAX_IMAGES}
+          className={`w-18 h-18 p-1 rounded-full border-4 transition-all transform active:scale-95 flex items-center justify-center
+            ${error || capturedImages.length >= MAX_IMAGES 
+               ? 'border-gray-600 opacity-50' 
+               : 'border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]'
+            }`}
         >
-           <div className={`w-16 h-16 rounded-full ${error ? 'bg-gray-500' : 'bg-white'} border-2 border-black`} />
+           <div className={`w-16 h-16 rounded-full border-2 border-black flex items-center justify-center
+             ${error ? 'bg-gray-500' : 'bg-white'}`} 
+           >
+              {capturedImages.length >= MAX_IMAGES && <Check className="text-emerald-600" size={32} />}
+           </div>
         </button>
 
-        <div className="w-12" /> {/* Spacer for balance */}
+        {/* Done Button (Conditional) */}
+        {capturedImages.length > 0 ? (
+             <button 
+                onClick={handleFinish}
+                className="flex flex-col items-center gap-1 text-emerald-400 hover:text-emerald-300 transition-colors animate-fade-in"
+             >
+                <div className="p-3 bg-emerald-900/50 rounded-full border border-emerald-500/30">
+                    <Check size={24} strokeWidth={3} />
+                </div>
+                <span className="text-xs font-bold">DONE</span>
+             </button>
+        ) : (
+            <div className="w-12" /> // Spacer
+        )}
       </div>
     </div>
   );

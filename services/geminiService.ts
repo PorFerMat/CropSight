@@ -11,10 +11,10 @@ if (!apiKey) {
 const ai = new GoogleGenAI({ apiKey: apiKey || 'DUMMY_KEY_FOR_BUILD' });
 
 /**
- * Analyzes a plant image using gemini-3-pro-preview with Thinking capabilities and Google Search Grounding.
+ * Analyzes plant images using gemini-3-pro-preview with Thinking capabilities and Google Search Grounding.
  */
 export const analyzePlantImage = async (
-  imageBase64: string,
+  imagesBase64: string[],
   cropType: string,
   growthStage: string,
   userNotes: string,
@@ -35,12 +35,12 @@ export const analyzePlantImage = async (
     // New instruction for checking if the image originates from the web
     const sourceCheckInstructions = `
       PRIORITY CHECK: REVERSE IMAGE LOOKUP
-      1. First, use Google Search to check if this exact image exists online.
+      1. First, use Google Search to check if any of these exact images exist online.
       2. If you find the image on a website (e.g., a blog, article, or database):
          - Trust the information from that source for the Diagnosis/Identification.
          - Cite that specific website in the response logic.
          - Set confidence to 95-100%.
-      3. If the image is unique (not found online):
+      3. If the images are unique (not found online):
          - Proceed with standard visual analysis and symptom matching.
     `;
 
@@ -49,7 +49,7 @@ export const analyzePlantImage = async (
         Act as a Senior Botanist.
         
         STEP 1: VALIDATION
-        Is this image a plant, flower, fruit, vegetable, or crop? 
+        Do the provided images contain a plant, flower, fruit, vegetable, or crop? 
         - If NO (e.g., it's a person, car, building, or blurry non-plant object): Return diagnosis: "Not a Plant", confidence: 0, treatment: [], prevention: [].
         - If YES: Proceed.
 
@@ -81,8 +81,8 @@ export const analyzePlantImage = async (
         Act as a Senior Plant Pathologist.
         
         STEP 1: VALIDATION (CRITICAL)
-        Analyze the image. Does it contain a plant, leaf, crop, fruit, or soil?
-        - If the image is unrelated to agriculture/botany (e.g., a selfie, furniture, animal): Return diagnosis: "Not a Plant", confidence: 0, treatment: [], prevention: []. STOP HERE.
+        Analyze the provided images. Do they contain a plant, leaf, crop, fruit, or soil?
+        - If the images are unrelated to agriculture/botany (e.g., a selfie, furniture, animal): Return diagnosis: "Not a Plant", confidence: 0, treatment: [], prevention: []. STOP HERE.
 
         STEP 2: SOURCE CHECK & DIAGNOSIS
         ${sourceCheckInstructions}
@@ -91,7 +91,7 @@ export const analyzePlantImage = async (
         Context: Crop: ${cropType}, Stage: ${growthStage}, Notes: "${userNotes}".
         ${iotContext}
 
-        1. **Search & Compare**: Use Google Search to find diseases matching the VISUAL SYMPTOMS (e.g., "concentric rings on tomato leaves").
+        1. **Search & Compare**: Use Google Search to find diseases matching the VISUAL SYMPTOMS (e.g., "concentric rings on tomato leaves"). Use all provided images to get a complete view.
         2. ${verificationInstructions}
         3. **Healthy Check**: If the plant has no visible necrotic spots, wilting, or pests, diagnosis MUST be "Healthy Plant". Do not hallucinate a disease on a healthy leaf.
         4. **Treatment**: Provide specific, actionable organic and chemical controls.
@@ -106,18 +106,21 @@ export const analyzePlantImage = async (
       `;
     }
 
+    // Construct parts array with multiple images
+    const parts: any[] = imagesBase64.map(img => ({
+      inlineData: {
+        mimeType: 'image/jpeg',
+        data: img,
+      },
+    }));
+    
+    // Add text prompt
+    parts.push({ text: prompt });
+
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: {
-        parts: [
-          {
-            inlineData: {
-              mimeType: 'image/jpeg',
-              data: imageBase64,
-            },
-          },
-          { text: prompt },
-        ],
+        parts: parts,
       },
       config: {
         tools: [{ googleSearch: {} }], // Enable Google Search Grounding

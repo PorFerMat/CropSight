@@ -24,23 +24,51 @@ export const analyzePlantImage = async (
   try {
     let prompt = "";
     
-    // Common instructions for robust source verification
-    const verificationInstructions = `
-      VERIFICATION RULES (CRITICAL):
-      1. **Source Quality**: You MUST prioritize information from University Agricultural Extensions (.edu), Government Agricultural Departments (.gov), and established botanical organizations (.org).
-      2. **Cross-Reference**: Do not confirm a diagnosis unless visual symptoms match descriptions from AT LEAST 4 distinct, high-quality sources found via Google Search.
-      3. **Visual Confirmation**: Compare the specific lesions, yellowing patterns, or bug morphology in the image against the images/descriptions found in your search. If they don't match, lower the confidence score.
+    // Strengthened verification and scoring rules
+    const verificationAndScoringRules = `
+      VERIFICATION & SCORING ALGORITHM (STRICT ENFORCEMENT):
+      
+      A. SOURCE QUALITY CHECK:
+      - **Valid Sources**: University Agricultural Extensions (.edu), Government Agricultural Agencies (.gov), established Botanical Gardens/Organizations (.org).
+      - **Weak Sources**: General blogs, social media (Pinterest, Reddit), stock photo sites, forums.
+
+      B. CONFIDENCE CALCULATION LOGIC:
+      1. **Exact Image Match (Tier 1)**: 
+         - If "Reverse Image Lookup" finds the exact image online.
+         - Score: **95-100%**.
+         - Reason: "Exact image match found online".
+      
+      2. **High Confidence (Tier 2)**: 
+         - Unique image (not found online).
+         - Visual symptoms match descriptions perfectly.
+         - Confirmed by **4+ Distinct Valid Sources (.edu/.gov/.org)**.
+         - Score: **85-95%**.
+         - Reason: "Verified by [X] high-quality sources".
+
+      3. **Medium Confidence (Tier 3)**:
+         - Symptoms match, but confirmed by only 2-3 Valid Sources.
+         - OR confirmed by 4+ Weak Sources.
+         - Score: **60-80%**.
+         - Reason: "Matches symptoms, but limited official verification".
+
+      4. **Low Confidence (Tier 4)**:
+         - Confirmed by < 2 sources.
+         - OR symptoms are generic (e.g., just "yellow leaves" without distinct lesions).
+         - Score: **< 60%**.
+         - Reason: "Insufficient data for definitive diagnosis".
+         
+      C. CRITICAL CAP:
+      If you cannot find at least 4 distinct .edu/.gov/.org sources confirming the specific visual symptoms, you **MUST NOT** assign a confidence score higher than 80%.
     `;
 
-    // New instruction for checking if the image originates from the web
+    // Instruction for checking if the image originates from the web
     const sourceCheckInstructions = `
       PRIORITY CHECK: REVERSE IMAGE LOOKUP
       1. First, use Google Search to check if any of these exact images exist online.
       2. If you find the image on a website (e.g., a blog, article, or database):
          - Trust the information from that source for the Diagnosis/Identification.
          - Cite that specific website in the response logic.
-         - Set confidence to 95-100%.
-         - Set confidenceReason to "Exact image match found online".
+         - Apply "Exact Image Match (Tier 1)" scoring.
       3. If the images are unique (not found online):
          - Proceed with standard visual analysis and symptom matching.
     `;
@@ -61,7 +89,7 @@ export const analyzePlantImage = async (
         User Notes: "${userNotes}".
         
         1. Use Google Search to identify the species.
-        2. ${verificationInstructions}
+        2. ${verificationAndScoringRules}
         3. Provide the Common Name (and Scientific Name) as the 'diagnosis'.
         4. In 'treatment', list 3 distinct physical characteristics visible in the photo that confirm this ID.
         5. In 'prevention', list 3 ideal growing conditions.
@@ -93,14 +121,14 @@ export const analyzePlantImage = async (
         ${iotContext}
 
         1. **Search & Compare**: Use Google Search to find diseases matching the VISUAL SYMPTOMS (e.g., "concentric rings on tomato leaves"). Use all provided images to get a complete view.
-        2. ${verificationInstructions}
-        3. **Healthy Check**: If the plant has no visible necrotic spots, wilting, or pests, diagnosis MUST be "Healthy Plant". Do not hallucinate a disease on a healthy leaf.
+        2. ${verificationAndScoringRules}
+        3. **Healthy Check**: If the plant has no visible necrotic spots, wilting, or pests, diagnosis MUST be "Healthy Plant". Do not hallucinate a disease on a healthy leaf. Set score to 90-100% with reason "No disease symptoms visible".
         4. **Treatment**: Provide specific, actionable organic and chemical controls.
         
         Response Requirements:
         - Diagnosis: Name of disease or "Healthy Plant".
-        - Confidence: 0-100. (If exact image found, 100. If < 4 matching sources, cap confidence at 80%).
-        - ConfidenceReason: A short explanation (max 15 words) of why this score was given. (e.g. "Verified by 4+ university sources", "Symptoms unclear, low match").
+        - Confidence: Follow the "CONFIDENCE CALCULATION LOGIC" strictly.
+        - ConfidenceReason: Use the reason templates from the "CONFIDENCE CALCULATION LOGIC".
         - Treatment: Array of steps.
         - Prevention: Array of tips.
         

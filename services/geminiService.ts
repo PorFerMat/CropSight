@@ -40,6 +40,7 @@ export const analyzePlantImage = async (
          - Trust the information from that source for the Diagnosis/Identification.
          - Cite that specific website in the response logic.
          - Set confidence to 95-100%.
+         - Set confidenceReason to "Exact image match found online".
       3. If the images are unique (not found online):
          - Proceed with standard visual analysis and symptom matching.
     `;
@@ -50,7 +51,7 @@ export const analyzePlantImage = async (
         
         STEP 1: VALIDATION
         Do the provided images contain a plant, flower, fruit, vegetable, or crop? 
-        - If NO (e.g., it's a person, car, building, or blurry non-plant object): Return diagnosis: "Not a Plant", confidence: 0, treatment: [], prevention: [].
+        - If NO (e.g., it's a person, car, building, or blurry non-plant object): Return diagnosis: "Not a Plant", confidence: 0, confidenceReason: "No plant detected", treatment: [], prevention: [].
         - If YES: Proceed.
 
         STEP 2: SOURCE CHECK & IDENTIFICATION
@@ -82,7 +83,7 @@ export const analyzePlantImage = async (
         
         STEP 1: VALIDATION (CRITICAL)
         Analyze the provided images. Do they contain a plant, leaf, crop, fruit, or soil?
-        - If the images are unrelated to agriculture/botany (e.g., a selfie, furniture, animal): Return diagnosis: "Not a Plant", confidence: 0, treatment: [], prevention: []. STOP HERE.
+        - If the images are unrelated to agriculture/botany (e.g., a selfie, furniture, animal): Return diagnosis: "Not a Plant", confidence: 0, confidenceReason: "No plant detected", treatment: [], prevention: []. STOP HERE.
 
         STEP 2: SOURCE CHECK & DIAGNOSIS
         ${sourceCheckInstructions}
@@ -99,6 +100,7 @@ export const analyzePlantImage = async (
         Response Requirements:
         - Diagnosis: Name of disease or "Healthy Plant".
         - Confidence: 0-100. (If exact image found, 100. If < 4 matching sources, cap confidence at 80%).
+        - ConfidenceReason: A short explanation (max 15 words) of why this score was given. (e.g. "Verified by 4+ university sources", "Symptoms unclear, low match").
         - Treatment: Array of steps.
         - Prevention: Array of tips.
         
@@ -131,6 +133,7 @@ export const analyzePlantImage = async (
           properties: {
             diagnosis: { type: Type.STRING },
             confidence: { type: Type.NUMBER, description: "Confidence score between 0 and 100" },
+            confidenceReason: { type: Type.STRING, description: "Explanation for the confidence score" },
             treatment: { 
               type: Type.ARRAY, 
               items: { type: Type.STRING },
@@ -142,7 +145,7 @@ export const analyzePlantImage = async (
               description: "Prevention tips or Growing conditions"
             }
           },
-          required: ["diagnosis", "confidence", "treatment", "prevention"],
+          required: ["diagnosis", "confidence", "confidenceReason", "treatment", "prevention"],
         },
       },
     });

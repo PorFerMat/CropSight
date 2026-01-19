@@ -41,6 +41,7 @@ export interface AnalysisResult {
   growthStage: string;
   diagnosis: string;
   confidence: number;
+  confidenceReason?: string; // New field for the explanation
   treatment: string[];
   prevention: string[];
   description: string; // User provided description
@@ -53,6 +54,7 @@ export interface AnalysisResult {
 export interface AIAnalysisResponse {
   diagnosis: string;
   confidence: number;
+  confidenceReason: string;
   treatment: string[];
   prevention: string[];
 }

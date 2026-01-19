@@ -49,10 +49,15 @@ CropSight is built on a modern web stack, heavily relying on the **Google GenAI 
     
     Where context includes user notes and IoT sensor data.
 
-2.  **IoT Integration**:
+2.  **Transparent Confidence Scoring**:
+    The confidence score is calculated based on strict verification tiers:
+    *   **Tier 1 (95-100%)**: **Reverse Image Lookup**. If the specific image is found on a trusted agricultural database or article via Google Search, the diagnosis is treated as "Ground Truth".
+    *   **Tier 2 (0-80%)**: **Unique Analysis**. If the image is unique, the AI searches for symptoms. The score is strictly **capped at 80%** unless the AI can cross-reference the symptoms against **at least 4 distinct high-quality sources** (University extensions, Gov websites).
+
+3.  **IoT Integration**:
     I implemented a simulated IoT connection that feeds environmental variables (Temperature $T$, Humidity $H$, Soil Moisture $M$) into the AI prompt. The model uses this to refine its diagnosis (e.g., favoring fungal pathogens when $H > 80\%$).
 
-3.  **Voice & Audio**:
+4.  **Voice & Audio**:
     *   **Input**: Uses `gemini-3-flash-preview` to transcribe spoken user notes.
     *   **Output**: Uses `gemini-2.5-flash-preview-tts` to read diagnoses aloud for accessibility in the field.
 

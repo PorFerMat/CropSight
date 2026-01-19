@@ -202,7 +202,13 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
              </div>
              <div className="flex flex-col">
                <span className="text-sm text-gray-500 font-medium">Confidence Score</span>
-               <span className="text-xs text-gray-400">Verified against online data</span>
+               {result.confidenceReason ? (
+                 <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 mt-1 max-w-[150px] leading-tight">
+                   {result.confidenceReason}
+                 </span>
+               ) : (
+                 <span className="text-xs text-gray-400">Verified against online data</span>
+               )}
              </div>
           </div>
           
@@ -395,6 +401,7 @@ const App: React.FC = () => {
         growthStage: selectedStage,
         diagnosis: response.diagnosis,
         confidence: response.confidence,
+        confidenceReason: response.confidenceReason,
         treatment: response.treatment,
         prevention: response.prevention,
         description: userNotes,

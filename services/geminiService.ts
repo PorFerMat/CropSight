@@ -1,5 +1,5 @@
-import { GoogleGenAI, Type } from "@google/genai";
-import { AIAnalysisResponse, AnalysisMode, IoTData } from "../types";
+import { GoogleGenAI, Type, Chat } from "@google/genai";
+import { AIAnalysisResponse, AnalysisMode, IoTData, AnalysisResult } from "../types";
 
 // Ensure API Key is present
 const apiKey = process.env.API_KEY;
@@ -210,6 +210,41 @@ export const analyzePlantImage = async (
     console.error("Analysis Error:", error);
     throw new Error("Failed to analyze image. Please try again.");
   }
+};
+
+/**
+ * Initializes a chat session with context from the analysis result.
+ */
+export const createChatSession = (result: AnalysisResult): Chat => {
+  const iotContext = result.iotData 
+    ? `Sensor Data: ${result.iotData.temperature}°C, ${result.iotData.humidity}% humidity, ${result.iotData.soilMoisture}% moisture.` 
+    : "";
+
+  const systemInstruction = `
+    You are an expert Agronomist and Plant Pathologist.
+    
+    CONTEXT OF CURRENT DIAGNOSIS:
+    - Crop: ${result.cropType} (${result.growthStage})
+    - Diagnosis: ${result.diagnosis}
+    - Confidence: ${result.confidence}% (${result.confidenceReason || 'N/A'})
+    - Recommended Treatment: ${result.treatment.join('; ')}
+    - Prevention Tips: ${result.prevention.join('; ')}
+    - User Notes: "${result.description}"
+    - ${iotContext}
+    
+    GOAL:
+    Answer the user's follow-up questions specifically about this diagnosis. 
+    - Be practical, safety-conscious, and encouraging. 
+    - If the user asks about chemical treatments, mention safety intervals (PHI).
+    - Keep answers concise (under 3 sentences) unless asked for details.
+  `;
+
+  return ai.chats.create({
+    model: 'gemini-3-flash-preview',
+    config: {
+      systemInstruction: systemInstruction,
+    },
+  });
 };
 
 /**

@@ -7,7 +7,6 @@ import {
   AlertTriangle,
   Leaf,
   ThermometerSun,
-  Volume2,
   Loader,
   ScanEye,
   Stethoscope,
@@ -21,14 +20,16 @@ import {
   X,
   AlertCircle,
   CheckCircle2,
-  Images
+  Images,
+  MessageCircle
 } from 'lucide-react';
 import { RadialBarChart, RadialBar, ResponsiveContainer, PolarAngleAxis } from 'recharts';
 
 import { ViewState, CropType, GrowthStage, AnalysisResult, HistoryItem, AnalysisMode, IoTData } from './types';
-import { analyzePlantImage, generateSpeech, getQuickTip, generateAppDemoVideo } from './services/geminiService';
+import { analyzePlantImage, getQuickTip, generateAppDemoVideo } from './services/geminiService';
 import Camera from './components/Camera';
 import AudioInput from './components/AudioInput';
+import ChatInterface from './components/ChatInterface';
 
 // --- Helper Components ---
 
@@ -83,59 +84,8 @@ const MessageModal: React.FC<MessageModalProps> = ({ title, message, type = 'err
   );
 };
 
-const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ result, onBack }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
-  const [loadingAudio, setLoadingAudio] = useState(false);
-
+const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void; onChat: () => void }> = ({ result, onBack, onChat }) => {
   const isIdentification = result.mode === 'IDENTIFICATION';
-
-  const handlePlayAudio = async () => {
-    if (isPlaying && audio) {
-      audio.pause();
-      setIsPlaying(false);
-      return;
-    }
-
-    if (audio) {
-      audio.play();
-      setIsPlaying(true);
-      return;
-    }
-
-    setLoadingAudio(true);
-    try {
-      const textToSpeak = isIdentification 
-        ? `Identified as: ${result.diagnosis}. Characteristics include: ${result.treatment.join('. ')}`
-        : `Diagnosis: ${result.diagnosis}. Treatment: ${result.treatment.join('. ')}`;
-        
-      const audioBase64 = await generateSpeech(textToSpeak);
-      
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({sampleRate: 24000});
-      const binaryString = atob(audioBase64);
-      const len = binaryString.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      
-      const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
-      
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
-      source.start(0);
-      
-      setIsPlaying(true);
-      source.onended = () => setIsPlaying(false);
-
-    } catch (err) {
-      console.error("Audio playback failed", err);
-    } finally {
-      setLoadingAudio(false);
-    }
-  };
-
   const chartData = [{ name: 'Confidence', value: result.confidence, fill: '#10b981' }];
 
   return (
@@ -171,6 +121,21 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
 
       <div className="p-6 space-y-6">
         
+        {/* Chat Call To Action */}
+        <div className="bg-gradient-to-r from-emerald-600 to-teal-600 rounded-2xl p-4 shadow-lg text-white flex items-center justify-between">
+           <div>
+             <h3 className="font-bold text-sm">Questions?</h3>
+             <p className="text-xs text-emerald-100 opacity-90">Ask the AI Agronomist about this diagnosis.</p>
+           </div>
+           <button 
+             onClick={onChat}
+             className="bg-white text-emerald-700 px-4 py-2 rounded-xl text-xs font-bold shadow-md hover:bg-emerald-50 transition-colors flex items-center gap-2"
+           >
+             <MessageCircle size={16} />
+             Chat Now
+           </button>
+        </div>
+
         {/* IoT Data Used Badge */}
         {result.iotData && (
           <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex flex-col gap-2">
@@ -186,10 +151,10 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
           </div>
         )}
 
-        {/* Confidence & Audio */}
-        <div className="flex items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
-          <div className="flex items-center gap-4">
-             <div className="w-16 h-16 relative">
+        {/* Confidence Score */}
+        <div className="flex items-center bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+          <div className="flex items-center gap-4 w-full">
+             <div className="w-16 h-16 relative flex-shrink-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <RadialBarChart innerRadius="70%" outerRadius="100%" data={chartData} startAngle={90} endAngle={-270} barSize={6}>
                     <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
@@ -203,7 +168,7 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
              <div className="flex flex-col">
                <span className="text-sm text-gray-500 font-medium">Confidence Score</span>
                {result.confidenceReason ? (
-                 <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 mt-1 max-w-[150px] leading-tight">
+                 <span className="text-xs text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 mt-1 leading-tight">
                    {result.confidenceReason}
                  </span>
                ) : (
@@ -211,14 +176,6 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void }> = ({ 
                )}
              </div>
           </div>
-          
-          <button 
-            onClick={handlePlayAudio}
-            disabled={loadingAudio}
-            className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 hover:bg-emerald-200 transition-colors"
-          >
-            {loadingAudio ? <Loader size={20} className="animate-spin" /> : <Volume2 size={24} />}
-          </button>
         </div>
 
         {/* Sources Section */}
@@ -332,6 +289,9 @@ const App: React.FC = () => {
   const [isGeneratingDemo, setIsGeneratingDemo] = useState(false);
   const [demoVideoUrl, setDemoVideoUrl] = useState<string | null>(null);
   const [showDemoModal, setShowDemoModal] = useState(false);
+
+  // Chat State
+  const [showChat, setShowChat] = useState(false);
 
   // Load quick tip on mount
   useEffect(() => {
@@ -491,8 +451,19 @@ const App: React.FC = () => {
     return <LoadingScreen />;
   }
 
+  // Handle Chat Overlay
+  if (view === ViewState.RESULT && currentResult && showChat) {
+     return <ChatInterface result={currentResult} onClose={() => setShowChat(false)} />;
+  }
+
   if (view === ViewState.RESULT && currentResult) {
-    return <ResultCard result={currentResult} onBack={() => setView(ViewState.HOME)} />;
+    return (
+        <ResultCard 
+            result={currentResult} 
+            onBack={() => setView(ViewState.HOME)} 
+            onChat={() => setShowChat(true)}
+        />
+    );
   }
 
   return (

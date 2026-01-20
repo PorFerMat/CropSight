@@ -51,7 +51,7 @@ To run this project locally, follow these steps:
     *   *Exact Match*: 95-100% (Found exact image online).
     *   *High*: 85-95% (Unique image verified by 4+ trusted sources).
     *   *Medium/Low*: <80% (Limited verification).
-*   **Audio Report**: Tap the speaker icon to listen to the diagnosis.
+*   **Ask the Agronomist**: Tap the "Chat Now" button to ask follow-up questions specifically about the current diagnosis.
 *   **Treatment/Prevention**: View step-by-step organic/chemical controls and prevention tips.
 *   **Sources**: Click on verified links to read more from agricultural universities or government sites.
 
@@ -81,17 +81,19 @@ CropSight is built on a modern web stack, heavily relying on the **Google GenAI 
     
     Where context includes user notes and IoT sensor data.
 
-2.  **Transparent Confidence Scoring**:
+2.  **Contextual Chat (Ask the Agronomist)**:
+    Implemented using `gemini-3-flash-preview` and `ai.chats.create()`. The system instruction is dynamically generated with the specific context of the current diagnosis (Crop, Disease, Treatment, IoT Data), allowing the AI to answer follow-up questions accurately without hallucinating unrelated information.
+
+3.  **Transparent Confidence Scoring**:
     The confidence score is calculated based on strict verification tiers:
     *   **Tier 1 (95-100%)**: **Reverse Image Lookup**. If the specific image is found on a trusted agricultural database or article via Google Search, the diagnosis is treated as "Ground Truth".
     *   **Tier 2 (0-80%)**: **Unique Analysis**. If the image is unique, the AI searches for symptoms. The score is strictly **capped at 80%** unless the AI can cross-reference the symptoms against **at least 4 distinct high-quality sources** (University extensions, Gov websites).
 
-3.  **IoT Integration**:
+4.  **IoT Integration**:
     I implemented a simulated IoT connection that feeds environmental variables (Temperature $T$, Humidity $H$, Soil Moisture $M$) into the AI prompt. The model uses this to refine its diagnosis (e.g., favoring fungal pathogens when $H > 80\%$).
 
-4.  **Voice & Audio**:
+5.  **Voice Input**:
     *   **Input**: Uses `gemini-3-flash-preview` to transcribe spoken user notes.
-    *   **Output**: Uses `gemini-2.5-flash-preview-tts` to read diagnoses aloud for accessibility in the field.
 
 ## 🧠 Challenges I Faced
 

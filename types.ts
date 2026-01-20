@@ -60,3 +60,9 @@ export interface AIAnalysisResponse {
 }
 
 export interface HistoryItem extends AnalysisResult {}
+
+export interface ChatMessage {
+  role: 'user' | 'model';
+  text: string;
+  isStreaming?: boolean;
+}

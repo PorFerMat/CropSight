@@ -48,6 +48,7 @@ export interface AnalysisResult {
   mode?: AnalysisMode;
   sources?: { title: string; uri: string }[];
   iotData?: IoTData;
+  missingInfo?: string[]; // Questions asked by AI if ambiguous
 }
 
 // JSON Schema structure for the AI response
@@ -57,6 +58,7 @@ export interface AIAnalysisResponse {
   confidenceReason: string;
   treatment: string[];
   prevention: string[];
+  missingInfo?: string[]; // Optional: List of questions if AI needs clarification
 }
 
 export interface HistoryItem extends AnalysisResult {}

@@ -21,9 +21,13 @@ import {
   AlertCircle,
   CheckCircle2,
   Images,
-  MessageCircle
+  MessageCircle,
+  Bot,
+  BrainCircuit,
+  FileSearch,
+  HelpCircle
 } from 'lucide-react';
-import { RadialBarChart, RadialBar, ResponsiveContainer, PolarAngleAxis } from 'recharts';
+import { RadialBarChart, RadialBar, PolarAngleAxis } from 'recharts';
 
 import { ViewState, CropType, GrowthStage, AnalysisResult, HistoryItem, AnalysisMode, IoTData } from './types';
 import { analyzePlantImage, getQuickTip, generateAppDemoVideo } from './services/geminiService';
@@ -33,18 +37,57 @@ import ChatInterface from './components/ChatInterface';
 
 // --- Helper Components ---
 
-const LoadingScreen: React.FC = () => (
-  <div className="flex flex-col items-center justify-center min-h-screen bg-emerald-50 px-6 text-center">
-    <div className="relative">
-      <div className="w-24 h-24 border-4 border-emerald-200 border-t-emerald-600 rounded-full animate-spin mb-6"></div>
-      <Sprout className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-emerald-600" size={32} />
+const LoadingScreen: React.FC<{ status: string }> = ({ status }) => {
+  // Determine icon based on status string content
+  const getStatusIcon = () => {
+    if (status.includes("Agent 1")) return <ScanEye className="text-emerald-600 animate-pulse" size={32} />;
+    if (status.includes("Agent 2")) return <FileSearch className="text-blue-600 animate-pulse" size={32} />;
+    if (status.includes("Agent 3")) return <BrainCircuit className="text-purple-600 animate-pulse" size={32} />;
+    return <Sprout className="text-emerald-600" size={32} />;
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 px-6 text-center">
+      <div className="relative mb-8">
+        <div className="w-24 h-24 border-4 border-gray-200 border-t-emerald-600 rounded-full animate-spin"></div>
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white p-3 rounded-full shadow-sm">
+           {getStatusIcon()}
+        </div>
+      </div>
+      
+      <div className="space-y-3 max-w-xs w-full">
+         {/* Progress Steps */}
+         <div className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-500 ${status.includes("Agent 1") ? "bg-emerald-50 border border-emerald-200 shadow-sm" : "opacity-40 grayscale"}`}>
+            <div className="bg-emerald-100 p-2 rounded-lg"><ScanEye size={18} className="text-emerald-700" /></div>
+            <div className="text-left">
+              <div className="text-xs font-bold text-emerald-800">Agent 1: Analyzer</div>
+              <div className="text-[10px] text-emerald-600">Vision & Symptom Detection</div>
+            </div>
+         </div>
+
+         <div className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-500 ${status.includes("Agent 2") ? "bg-blue-50 border border-blue-200 shadow-sm" : "opacity-40 grayscale"}`}>
+            <div className="bg-blue-100 p-2 rounded-lg"><FileSearch size={18} className="text-blue-700" /></div>
+            <div className="text-left">
+              <div className="text-xs font-bold text-blue-800">Agent 2: Classifier</div>
+              <div className="text-[10px] text-blue-600">Database Search & ID</div>
+            </div>
+         </div>
+
+         <div className={`flex items-center gap-3 p-3 rounded-xl transition-all duration-500 ${status.includes("Agent 3") ? "bg-purple-50 border border-purple-200 shadow-sm" : "opacity-40 grayscale"}`}>
+            <div className="bg-purple-100 p-2 rounded-lg"><BrainCircuit size={18} className="text-purple-700" /></div>
+            <div className="text-left">
+              <div className="text-xs font-bold text-purple-800">Agent 3: Advisor</div>
+              <div className="text-[10px] text-purple-600">Treatment Plan Generation</div>
+            </div>
+         </div>
+      </div>
+      
+      <p className="mt-8 text-gray-400 text-xs animate-pulse">
+        {status}...
+      </p>
     </div>
-    <h2 className="text-xl font-bold text-gray-800 mb-2">Analyzing your plant...</h2>
-    <p className="text-gray-600 text-sm max-w-xs">
-      Comparing visual symptoms against agricultural databases and verifying sources...
-    </p>
-  </div>
-);
+  );
+};
 
 interface MessageModalProps {
   title: string;
@@ -79,6 +122,58 @@ const MessageModal: React.FC<MessageModalProps> = ({ title, message, type = 'err
             Okay, got it
           </button>
         </div>
+      </div>
+    </div>
+  );
+};
+
+const ClarificationModal: React.FC<{ questions: string[]; onSubmit: (answers: string) => void }> = ({ questions, onSubmit }) => {
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+
+  const handleSubmit = () => {
+    // Format answers into a single string to append to user notes
+    const formatted = questions.map((q, idx) => `Q: ${q} A: ${answers[idx] || 'Skipped'}`).join('. ');
+    onSubmit(formatted);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+         <div className="bg-blue-50 p-6 border-b border-blue-100">
+            <div className="flex items-center gap-3 mb-2">
+               <div className="bg-blue-100 p-2 rounded-full text-blue-600">
+                 <HelpCircle size={24} />
+               </div>
+               <h3 className="text-xl font-bold text-gray-900">I need a bit more detail</h3>
+            </div>
+            <p className="text-sm text-blue-800">
+               The image is ambiguous or blurry. Please answer these questions to help Agent 2 identify the problem.
+            </p>
+         </div>
+         
+         <div className="p-6 space-y-4 overflow-y-auto">
+            {questions.map((q, idx) => (
+               <div key={idx}>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">{q}</label>
+                  <input 
+                    type="text" 
+                    className="w-full bg-gray-50 border border-gray-300 rounded-lg px-3 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="Type your answer here..."
+                    value={answers[idx] || ''}
+                    onChange={(e) => setAnswers(prev => ({...prev, [idx]: e.target.value}))}
+                  />
+               </div>
+            ))}
+         </div>
+
+         <div className="p-4 border-t border-gray-100 bg-gray-50">
+            <button 
+               onClick={handleSubmit}
+               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-200 transition-all active:scale-[0.98]"
+            >
+               Submit Answers & Re-Analyze
+            </button>
+         </div>
       </div>
     </div>
   );
@@ -154,13 +249,21 @@ const ResultCard: React.FC<{ result: AnalysisResult; onBack: () => void; onChat:
         {/* Confidence Score */}
         <div className="flex items-center bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
           <div className="flex items-center gap-4 w-full">
-             <div className="w-16 h-16 relative flex-shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <RadialBarChart innerRadius="70%" outerRadius="100%" data={chartData} startAngle={90} endAngle={-270} barSize={6}>
-                    <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
-                    <RadialBar background dataKey="value" cornerRadius={10} />
-                  </RadialBarChart>
-                </ResponsiveContainer>
+             <div className="w-16 h-16 relative flex-shrink-0 flex items-center justify-center">
+                {/* Fixed dimensions to prevent Recharts -1 width error */}
+                <RadialBarChart 
+                  width={64} 
+                  height={64} 
+                  innerRadius="70%" 
+                  outerRadius="100%" 
+                  data={chartData} 
+                  startAngle={90} 
+                  endAngle={-270} 
+                  barSize={6}
+                >
+                  <PolarAngleAxis type="number" domain={[0, 100]} angleAxisId={0} tick={false} />
+                  <RadialBar background dataKey="value" cornerRadius={10} />
+                </RadialBarChart>
                 <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-emerald-600">
                   {result.confidence}%
                 </div>
@@ -274,9 +377,14 @@ const App: React.FC = () => {
   const [isConnectingIoT, setIsConnectingIoT] = useState(false);
   
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisStatus, setAnalysisStatus] = useState<string>("Initializing...");
   const [currentResult, setCurrentResult] = useState<AnalysisResult | null>(null);
   const [quickTip, setQuickTip] = useState<string>("Loading daily tip...");
   
+  // Clarification State
+  const [clarificationQuestions, setClarificationQuestions] = useState<string[]>([]);
+  const [showClarificationModal, setShowClarificationModal] = useState(false);
+
   // Modal State
   const [modalState, setModalState] = useState<{show: boolean, title: string, message: string, type: 'error' | 'success' | 'info'}>({
     show: false,
@@ -327,35 +435,50 @@ const App: React.FC = () => {
     setModalState({ show: true, title, message, type });
   };
 
-  const handleAnalyze = async () => {
+  // Main Analysis function
+  const runAnalysis = async (overrideNotes?: string) => {
     if (capturedImages.length === 0) return;
     
     setIsAnalyzing(true);
+    setAnalysisStatus("Agent 1 (Analyzer): Scanning visual symptoms...");
+    
+    // Combine current notes with any override (answers from clarification)
+    const effectiveNotes = overrideNotes ? `${userNotes} [USER ANSWERS: ${overrideNotes}]` : userNotes;
+    
     try {
       const response = await analyzePlantImage(
         capturedImages, 
         selectedCrop, 
         selectedStage, 
-        userNotes,
+        effectiveNotes,
         analysisMode,
-        iotData || undefined
+        iotData || undefined,
+        setAnalysisStatus
       );
 
-      // Handle "Not a Plant" detection
+      // Handle "Not a Plant"
       if (response.diagnosis === "Not a Plant" || response.confidence === 0) {
           showModal(
             "No Plant Detected", 
-            "We couldn't identify a clear plant in your photos. Please try retaking them, ensuring the plant is centered, well-lit, and in focus.",
+            "Agent 1 (Analyzer) couldn't identify a clear plant in your photos. Please try retaking them.",
             "error"
           );
           setIsAnalyzing(false);
           return;
       }
 
+      // Handle "Missing Info" (Ambiguity loop) - Only if we didn't just submit answers (to avoid infinite loops)
+      if (response.missingInfo && response.missingInfo.length > 0 && !overrideNotes) {
+         setClarificationQuestions(response.missingInfo);
+         setShowClarificationModal(true);
+         setIsAnalyzing(false);
+         return; // Stop here, wait for modal submit
+      }
+
       const result: AnalysisResult = {
         id: Date.now().toString(),
         timestamp: Date.now(),
-        imageUrl: capturedImages[0], // Use first image as thumbnail
+        imageUrl: capturedImages[0], 
         additionalImages: capturedImages,
         cropType: selectedCrop,
         growthStage: selectedStage,
@@ -364,7 +487,7 @@ const App: React.FC = () => {
         confidenceReason: response.confidenceReason,
         treatment: response.treatment,
         prevention: response.prevention,
-        description: userNotes,
+        description: effectiveNotes,
         mode: analysisMode,
         sources: response.sources,
         iotData: iotData || undefined
@@ -381,12 +504,23 @@ const App: React.FC = () => {
     }
   };
 
+  const handleAnalyze = () => {
+     runAnalysis();
+  };
+
+  const handleClarificationSubmit = (answers: string) => {
+    setShowClarificationModal(false);
+    // Append answers to context and re-run
+    runAnalysis(answers);
+  };
+
   const startNewScan = () => {
     setCapturedImages([]);
     setUserNotes('');
     setAnalysisMode('DIAGNOSIS'); // Reset to default
     setIotData(null); // Reset IoT Data
     setIsCameraOpen(true);
+    setShowClarificationModal(false);
   };
 
   const handleWatchDemo = async () => {
@@ -448,7 +582,7 @@ const App: React.FC = () => {
   }
 
   if (isAnalyzing) {
-    return <LoadingScreen />;
+    return <LoadingScreen status={analysisStatus} />;
   }
 
   // Handle Chat Overlay
@@ -476,6 +610,14 @@ const App: React.FC = () => {
           message={modalState.message} 
           type={modalState.type} 
           onClose={() => setModalState(prev => ({ ...prev, show: false }))} 
+        />
+      )}
+
+      {/* Clarification Modal (Agent 2 Request) */}
+      {showClarificationModal && (
+        <ClarificationModal 
+           questions={clarificationQuestions}
+           onSubmit={handleClarificationSubmit}
         />
       )}
       

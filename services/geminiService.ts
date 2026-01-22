@@ -7,11 +7,207 @@ if (!apiKey) {
   console.error("API_KEY is missing from environment variables.");
 }
 
-// Global instance for standard calls (fallback)
+// Global instance
 const ai = new GoogleGenAI({ apiKey: apiKey || 'DUMMY_KEY_FOR_BUILD' });
 
 /**
- * Analyzes plant images using gemini-3-pro-preview with Thinking capabilities and Google Search Grounding.
+ * AGENT 1: THE ANALYZER (Vision Specialist)
+ * Role: Describes the image in high detail, focusing on symptoms. 
+ * Does not diagnose, only observes.
+ */
+const runAnalyzerAgent = async (imagesBase64: string[]): Promise<string> => {
+  const prompt = `
+    Act as a Computer Vision Specialist for Agriculture.
+    
+    Task: Analyze the provided plant images and generate a rigorous visual description.
+    
+    1. First, verify if this is a plant, crop, or soil. If not, output "NOT_A_PLANT".
+    2. If it is a plant, describe:
+       - Leaf color patterns (chlorosis, necrosis, mottling).
+       - Lesion shapes (concentric rings, irregular, water-soaked).
+       - Presence of pests or eggs.
+       - Stem/Fruit condition.
+       - Image Quality: State if the image is blurry, too dark, or lacks focus on the symptom.
+    
+    Output Format: Pure text description. Be clinical and precise. Do not provide a diagnosis.
+  `;
+
+  const parts: any[] = imagesBase64.map(img => ({
+    inlineData: { mimeType: 'image/jpeg', data: img },
+  }));
+  parts.push({ text: prompt });
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.5-flash-image', // Optimized for vision
+    contents: { parts },
+    config: {
+      temperature: 0.2, // Low temperature for factual observation
+    }
+  });
+
+  return response.text || "";
+};
+
+/**
+ * AGENT 2: THE CLASSIFIER (Pathologist & Researcher)
+ * Role: Takes the visual description and context, searches the web, and identifies the disease.
+ * STRICT: Enforces confidence scoring based on source verification.
+ * UPDATED: Prioritizes .edu/.gov sources and asks "Gap Filling" questions.
+ */
+const runClassifierAgent = async (
+  visualDescription: string,
+  context: string,
+  mode: AnalysisMode
+): Promise<{ 
+  diagnosis: string; 
+  confidence: number; 
+  confidenceReason: string; 
+  sources: { title: string; uri: string }[];
+  missingInfo?: string[];
+}> => {
+  const systemInstruction = `
+    You are Agent 2 (The Classifier). Your goal is to identify the plant/disease based on Agent 1's visual description.
+    
+    INPUT DATA:
+    - Visual Observations: "${visualDescription}"
+    - User Context: "${context}"
+    
+    SOURCE PRIORITY (HIERARCHY OF TRUTH):
+    1. **High Authority**: .edu (Universities), .gov (Agricultural Extensions), .org (Research Institutes).
+    2. **Medium Authority**: Established gardening publications (e.g., RHS, Farmer's Almanac).
+    3. **Low Authority**: Generic blogs, AI-generated content sites.
+    
+    PROTOCOL:
+    
+    1. **CHECK FOR USER ANSWERS**: 
+       - Look for "USER ANSWERS:" in the User Context.
+       - **IF FOUND**: You MUST provide a diagnosis. Do **NOT** ask more questions. Use the answers to finalize the "Best Guess" diagnosis.
+    
+    2. **RESEARCH & GAP ANALYSIS**:
+       - Search for the visual symptoms, specifically looking for matches on **High Authority** domains.
+       - **Compare**: Do the Visual Observations match the "Key Identification Characteristics" listed on trusted sites?
+       - **Identify the Gap**: If High Authority sources suggest two similar diseases (e.g., Early Blight vs. Septoria) that require non-visual info to distinguish (e.g., "Did it start at the bottom of the plant?", "Is there a smell?"), this is a GAP.
+    
+    3. **DECISION**:
+       - **Option A (Clear Match)**: If Visuals + High Authority Sources align > 85%, provide Diagnosis.
+       - **Option B (Gap Detected)**: If you need to fill a specific gap to distinguish between likely diagnoses found on .edu/.gov sites:
+         - Populate 'missingInfo' with 3 specific questions.
+         - Questions must be SIMPLE and directed at the user (e.g., "Rub the leaf. Does it smell like rotting fish?").
+       - **Option C (Ambiguous)**: If image is blurry or generic, ask for better photos or context.
+    
+    4. **CONFIDENCE SCORING**:
+       - **90-100%**: Diagnosis confirmed by multiple .edu/.gov sources matching the visuals exactly.
+       - **70-89%**: Strong match, but sources are mixed authority.
+       - **<70%**: Best guess based on visuals alone.
+    
+    If Visual Observations were "NOT_A_PLANT", return diagnosis: "Not a Plant", confidence: 0.
+  `;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: "Identify the subject. Prioritize .edu/.gov research. If a gap exists, ask questions.",
+    config: {
+      systemInstruction: systemInstruction,
+      tools: [{ googleSearch: {} }],
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          diagnosis: { type: Type.STRING },
+          confidence: { 
+            type: Type.NUMBER,
+            description: "A number between 0 and 100 representing percentage confidence." 
+          },
+          confidenceReason: { type: Type.STRING },
+          missingInfo: { 
+             type: Type.ARRAY, 
+             items: { type: Type.STRING },
+             description: "Questions to fill the research gap. LEAVE EMPTY if diagnosis is clear or User Answers are present."
+          }
+        },
+        required: ["diagnosis", "confidence", "confidenceReason"],
+      },
+    },
+  });
+
+  // Extract Sources
+  const sources: { title: string; uri: string }[] = [];
+  const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+  if (chunks) {
+    chunks.forEach((chunk: any) => {
+      if (chunk.web?.uri && chunk.web?.title) {
+        sources.push({ title: chunk.web.title, uri: chunk.web.uri });
+      }
+    });
+  }
+
+  const json = JSON.parse(response.text || "{}");
+  
+  // Normalize confidence score (handle 0-1 vs 0-100 inconsistency)
+  let confidence = json.confidence || 0;
+  if (confidence <= 1 && confidence > 0) {
+      confidence = Math.round(confidence * 100);
+  }
+
+  return { ...json, confidence, sources };
+};
+
+/**
+ * AGENT 3: THE ADVISOR (Agronomist)
+ * Role: Generates actionable advice based on the diagnosis and specific crop context.
+ */
+const runAdvisorAgent = async (
+  diagnosis: string,
+  visualDescription: string,
+  cropType: string,
+  iotData?: IoTData
+): Promise<{ treatment: string[]; prevention: string[] }> => {
+  
+  if (diagnosis === "Not a Plant") return { treatment: [], prevention: [] };
+
+  const iotContext = iotData 
+    ? `Current Conditions: ${iotData.temperature}°C, ${iotData.humidity}% humidity.` 
+    : "No sensor data.";
+
+  const prompt = `
+    You are Agent 3 (The Advisor).
+    
+    INPUT:
+    - Diagnosis: "${diagnosis}"
+    - Visual Severity: "${visualDescription}"
+    - Crop: ${cropType}
+    - Environment: ${iotContext}
+    
+    TASK:
+    Provide a practical treatment plan.
+    1. Treatment: 3 distinct steps. Start with organic/cultural, then chemical if needed.
+    2. Prevention: 3 distinct long-term strategies.
+    
+    **CRITICAL**: You MUST provide output for Treatment and Prevention, even if the diagnosis is general (e.g., "Fungal Infection"). Do not leave arrays empty.
+  `;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          treatment: { type: Type.ARRAY, items: { type: Type.STRING } },
+          prevention: { type: Type.ARRAY, items: { type: Type.STRING } },
+        },
+        required: ["treatment", "prevention"],
+      },
+    },
+  });
+
+  return JSON.parse(response.text || "{}");
+};
+
+/**
+ * ORCHESTRATOR
+ * Coordinates the Multi-Agent System.
  */
 export const analyzePlantImage = async (
   imagesBase64: string[],
@@ -19,196 +215,61 @@ export const analyzePlantImage = async (
   growthStage: string,
   userNotes: string,
   mode: AnalysisMode = 'DIAGNOSIS',
-  iotData?: IoTData
+  iotData?: IoTData,
+  onStatusUpdate?: (status: string) => void
 ): Promise<AIAnalysisResponse & { sources?: { title: string; uri: string }[] }> => {
   try {
-    let prompt = "";
+    // --- Step 1: Analyzer Agent ---
+    if (onStatusUpdate) onStatusUpdate("Agent 1 (Analyzer): Detecting visual symptoms...");
+    const visualDescription = await runAnalyzerAgent(imagesBase64);
     
-    // Strengthened verification and scoring rules
-    const verificationAndScoringRules = `
-      VERIFICATION & SCORING ALGORITHM (STRICT ENFORCEMENT):
-      
-      A. SOURCE QUALITY CHECK:
-      - **Valid Sources**: University Agricultural Extensions (.edu), Government Agricultural Agencies (.gov), established Botanical Gardens/Organizations (.org).
-      - **Weak Sources**: General blogs, social media (Pinterest, Reddit), stock photo sites, forums.
-
-      B. CONFIDENCE CALCULATION LOGIC:
-      1. **Exact Image Match (Tier 1)**: 
-         - If "Reverse Image Lookup" finds the exact image online.
-         - Score: **95-100%**.
-         - Reason: "Exact image match found online".
-      
-      2. **High Confidence (Tier 2)**: 
-         - Unique image (not found online).
-         - Visual symptoms match descriptions perfectly.
-         - Confirmed by **4+ Distinct Valid Sources (.edu/.gov/.org)**.
-         - Score: **85-95%**.
-         - Reason: "Verified by [X] high-quality sources".
-
-      3. **Medium Confidence (Tier 3)**:
-         - Symptoms match, but confirmed by only 2-3 Valid Sources.
-         - OR confirmed by 4+ Weak Sources.
-         - Score: **60-80%**.
-         - Reason: "Matches symptoms, but limited official verification".
-
-      4. **Low Confidence (Tier 4)**:
-         - Confirmed by < 2 sources.
-         - OR symptoms are generic (e.g., just "yellow leaves" without distinct lesions).
-         - Score: **< 60%**.
-         - Reason: "Insufficient data for definitive diagnosis".
-         
-      C. CRITICAL CAP:
-      If you cannot find at least 4 distinct .edu/.gov/.org sources confirming the specific visual symptoms, you **MUST NOT** assign a confidence score higher than 80%.
-    `;
-
-    // Instruction for checking if the image originates from the web
-    const sourceCheckInstructions = `
-      PRIORITY CHECK: REVERSE IMAGE LOOKUP
-      1. First, use Google Search to check if any of these exact images exist online.
-      2. If you find the image on a website (e.g., a blog, article, or database):
-         - Trust the information from that source for the Diagnosis/Identification.
-         - Cite that specific website in the response logic.
-         - Apply "Exact Image Match (Tier 1)" scoring.
-      3. If the images are unique (not found online):
-         - Proceed with standard visual analysis and symptom matching.
-    `;
-
-    if (mode === 'IDENTIFICATION') {
-      prompt = `
-        Act as a Senior Botanist.
-        
-        STEP 1: VALIDATION
-        Do the provided images contain a plant, flower, fruit, vegetable, or crop? 
-        - If NO (e.g., it's a person, car, building, or blurry non-plant object): Return diagnosis: "Not a Plant", confidence: 0, confidenceReason: "No plant detected", treatment: [], prevention: [].
-        - If YES: Proceed.
-
-        STEP 2: SOURCE CHECK & IDENTIFICATION
-        ${sourceCheckInstructions}
-
-        STEP 3: STANDARD ANALYSIS (If unique image)
-        User Notes: "${userNotes}".
-        
-        1. Use Google Search to identify the species.
-        2. ${verificationAndScoringRules}
-        3. Provide the Common Name (and Scientific Name) as the 'diagnosis'.
-        4. In 'treatment', list 3 distinct physical characteristics visible in the photo that confirm this ID.
-        5. In 'prevention', list 3 ideal growing conditions.
-        
-        Return JSON.
-      `;
-    } else {
-      // Construct IoT Context string if data exists
-      const iotContext = iotData ? `
-        Real-time IoT Sensor Data:
-        - Temp: ${iotData.temperature}°C
-        - Humidity: ${iotData.humidity}%
-        - Soil Moisture: ${iotData.soilMoisture}%
-        (Use this to validate disease likelihood. E.g., Fungal diseases thrive in high humidity).
-      ` : "No IoT sensor data available.";
-
-      prompt = `
-        Act as a Senior Plant Pathologist.
-        
-        STEP 1: VALIDATION (CRITICAL)
-        Analyze the provided images. Do they contain a plant, leaf, crop, fruit, or soil?
-        - If the images are unrelated to agriculture/botany (e.g., a selfie, furniture, animal): Return diagnosis: "Not a Plant", confidence: 0, confidenceReason: "No plant detected", treatment: [], prevention: []. STOP HERE.
-
-        STEP 2: SOURCE CHECK & DIAGNOSIS
-        ${sourceCheckInstructions}
-
-        STEP 3: STANDARD ANALYSIS (If unique image)
-        Context: Crop: ${cropType}, Stage: ${growthStage}, Notes: "${userNotes}".
-        ${iotContext}
-
-        1. **Search & Compare**: Use Google Search to find diseases matching the VISUAL SYMPTOMS (e.g., "concentric rings on tomato leaves"). Use all provided images to get a complete view.
-        2. ${verificationAndScoringRules}
-        3. **Healthy Check**: If the plant has no visible necrotic spots, wilting, or pests, diagnosis MUST be "Healthy Plant". Do not hallucinate a disease on a healthy leaf. Set score to 90-100% with reason "No disease symptoms visible".
-        4. **Treatment**: Provide specific, actionable organic and chemical controls.
-        
-        Response Requirements:
-        - Diagnosis: Name of disease or "Healthy Plant".
-        - Confidence: Follow the "CONFIDENCE CALCULATION LOGIC" strictly.
-        - ConfidenceReason: Use the reason templates from the "CONFIDENCE CALCULATION LOGIC".
-        - Treatment: Array of steps.
-        - Prevention: Array of tips.
-        
-        Return JSON.
-      `;
+    if (visualDescription.includes("NOT_A_PLANT")) {
+       return {
+         diagnosis: "Not a Plant",
+         confidence: 0,
+         confidenceReason: "Agent 1 could not detect valid plant structures.",
+         treatment: [],
+         prevention: []
+       };
     }
 
-    // Construct parts array with multiple images
-    const parts: any[] = imagesBase64.map(img => ({
-      inlineData: {
-        mimeType: 'image/jpeg',
-        data: img,
-      },
-    }));
-    
-    // Add text prompt
-    parts.push({ text: prompt });
+    // --- Step 2: Classifier Agent ---
+    if (onStatusUpdate) onStatusUpdate("Agent 2 (Classifier): Researching trusted .edu/.gov databases...");
+    const context = `Crop: ${cropType}, Stage: ${growthStage}, User Notes: ${userNotes}, IoT: ${iotData ? JSON.stringify(iotData) : 'None'}`;
+    const classification = await runClassifierAgent(visualDescription, context, mode);
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: {
-        parts: parts,
-      },
-      config: {
-        tools: [{ googleSearch: {} }], // Enable Google Search Grounding
-        thinkingConfig: { thinkingBudget: 16384 },
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            diagnosis: { type: Type.STRING },
-            confidence: { type: Type.NUMBER, description: "Confidence score between 0 and 100" },
-            confidenceReason: { type: Type.STRING, description: "Explanation for the confidence score" },
-            treatment: { 
-              type: Type.ARRAY, 
-              items: { type: Type.STRING },
-              description: "Treatment steps or Characteristics"
-            },
-            prevention: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: "Prevention tips or Growing conditions"
-            }
-          },
-          required: ["diagnosis", "confidence", "confidenceReason", "treatment", "prevention"],
-        },
-      },
-    });
-
-    const text = response.text;
-    if (!text) throw new Error("No response from AI");
-    
-    // Extract sources from grounding metadata
-    const sources: { title: string; uri: string }[] = [];
-    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    
-    if (chunks) {
-      chunks.forEach((chunk: any) => {
-        if (chunk.web?.uri && chunk.web?.title) {
-          sources.push({
-            title: chunk.web.title,
-            uri: chunk.web.uri
-          });
-        }
-      });
+    // CHECK FOR MISSING INFO / AMBIGUITY
+    // Important: Agent 2 is instructed NOT to return missingInfo if 'USER ANSWERS' are in the notes.
+    if (classification.missingInfo && classification.missingInfo.length > 0) {
+      return {
+        diagnosis: classification.diagnosis || "Ambiguous",
+        confidence: classification.confidence || 0,
+        confidenceReason: classification.confidenceReason || "More information required.",
+        treatment: [],
+        prevention: [],
+        missingInfo: classification.missingInfo,
+        sources: []
+      };
     }
 
-    // Filter duplicates based on URI
-    const uniqueSources = Array.from(new Map(sources.map(item => [item.uri, item])).values());
+    // --- Step 3: Advisor Agent ---
+    // This runs if missingInfo is empty (meaning we have a diagnosis or forced guess)
+    if (onStatusUpdate) onStatusUpdate("Agent 3 (Advisor): Formulating treatment plan...");
+    const advice = await runAdvisorAgent(classification.diagnosis, visualDescription, cropType, iotData);
 
-    const result = JSON.parse(text) as AIAnalysisResponse;
-
+    // Combine Results
     return {
-      ...result,
-      sources: uniqueSources.slice(0, 5) // Return top 5 unique sources
+      diagnosis: classification.diagnosis,
+      confidence: classification.confidence,
+      confidenceReason: classification.confidenceReason,
+      treatment: advice.treatment || [],
+      prevention: advice.prevention || [],
+      sources: classification.sources
     };
 
   } catch (error) {
-    console.error("Analysis Error:", error);
-    throw new Error("Failed to analyze image. Please try again.");
+    console.error("Multi-Agent Analysis Error:", error);
+    throw new Error("Analysis failed.");
   }
 };
 
@@ -275,36 +336,7 @@ export const transcribeAudio = async (audioBase64: string, mimeType: string = 'a
 };
 
 /**
- * Generates speech from text using gemini-2.5-flash-preview-tts.
- */
-export const generateSpeech = async (text: string): Promise<string> => {
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-preview-tts',
-      contents: {
-        parts: [{ text: text }],
-      },
-      config: {
-        responseModalities: ['AUDIO'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' },
-          },
-        },
-      },
-    });
-
-    const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-    if (!base64Audio) throw new Error("No audio generated");
-    return base64Audio;
-  } catch (error) {
-    console.error("TTS Error:", error);
-    throw error;
-  }
-};
-
-/**
- * Gets a quick agronomy tip using gemini-2.5-flash-lite-latest (Fast Model).
+ * Gets a quick agronomy tip using gemini-flash-lite-latest (Fast Model).
  */
 export const getQuickTip = async (): Promise<string> => {
   try {
